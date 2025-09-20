@@ -50,11 +50,14 @@ def render_assignment_interface():
     
     folder_type = st.selectbox(
         "Folder Type",
-        ["Default Folders", "Parts", "Chapters"],
+        ["Default Folders", "Parts"],
         help="Choose the type of folder to assign pages to"
     )
     
-    destination_info = render_folder_selection(folder_type, available_folders)
+    if folder_type == "Default Folders":
+        destination_info = render_default_folder_selection(available_folders['default'])
+    else:  # Parts
+        destination_info = render_parts_selection_interface(available_folders)
     
     if destination_info and destination_info[0]:  # Check if destination is selected
         render_page_range_input(destination_info)
@@ -65,7 +68,7 @@ def get_available_folders() -> Dict[str, List[Tuple[str, str]]]:
     folder_metadata = SessionManager.get('folder_metadata', {})
     
     if not config.get('code') or not config.get('book_name'):
-        return {'default': [], 'parts': [], 'chapters': []}
+        return {'default': [], 'parts': [], 'chapters': {}}
     
     safe_code = FolderManager.sanitize_name(config['code'])
     safe_book_name = FolderManager.sanitize_name(config['book_name'])
@@ -74,7 +77,7 @@ def get_available_folders() -> Dict[str, List[Tuple[str, str]]]:
     folders = {
         'default': [],
         'parts': [],
-        'chapters': []
+        'chapters': {}  # Organized by part number
     }
     
     # Default folders
@@ -85,42 +88,96 @@ def get_available_folders() -> Dict[str, List[Tuple[str, str]]]:
     # Part folders
     num_parts = config.get('num_parts', 0)
     for i in range(1, num_parts + 1):
-        folder_name = f"{base_name}_part_{i}"
+        folder_name = f"{base_name}_Part_{i}"
         folders['parts'].append((folder_name, folder_name))
+        
+        # Initialize chapters list for this part
+        folders['chapters'][i] = []
     
-    # Chapter folders from metadata
+    # Chapter folders organized by part
     for folder_id, metadata in folder_metadata.items():
         if metadata['type'] == 'chapter':
-            folders['chapters'].append((metadata['display_name'], folder_id))
+            part_num = metadata['parent_part']
+            if part_num in folders['chapters']:
+                chapter_display_name = metadata['display_name'].split(" → ")[-1]  # Get just the chapter part
+                folders['chapters'][part_num].append((chapter_display_name, folder_id))
     
     return folders
 
-def render_folder_selection(folder_type: str, available_folders: Dict[str, List[Tuple[str, str]]]) -> Tuple[str, str]:
-    """Render folder selection based on type and return (display_name, folder_id)"""
-    
-    folder_mapping = {
-        "Default Folders": "default",
-        "Parts": "parts", 
-        "Chapters": "chapters"
-    }
-    
-    folder_key = folder_mapping[folder_type]
-    folders = available_folders[folder_key]
-    
-    if not folders:
-        st.info(f"No {folder_type.lower()} available.")
+def render_default_folder_selection(default_folders: List[Tuple[str, str]]) -> Tuple[str, str]:
+    """Render selection for default folders"""
+    if not default_folders:
+        st.info("No default folders available.")
         return ("", "")
     
-    # Create selectbox with display names but track IDs
-    display_names = [folder[0] for folder in folders]
+    display_names = [folder[0] for folder in default_folders]
     selected_index = st.selectbox(
-        f"Select {folder_type[:-1]}",
+        "Select Default Folder",
         range(len(display_names)),
         format_func=lambda x: display_names[x],
-        help=f"Choose the specific {folder_type.lower()[:-1]} to assign pages to"
+        help="Choose the specific default folder to assign pages to"
     )
     
-    return folders[selected_index] if selected_index is not None else ("", "")
+    return default_folders[selected_index] if selected_index is not None else ("", "")
+
+def render_parts_selection_interface(available_folders: Dict) -> Tuple[str, str]:
+    """Render the parts selection interface with sub-options"""
+    
+    parts_folders = available_folders['parts']
+    chapters_by_part = available_folders['chapters']
+    
+    if not parts_folders:
+        st.info("No parts available.")
+        return ("", "")
+    
+    # Step 1: Select Part
+    part_display_names = [folder[0] for folder in parts_folders]
+    selected_part_index = st.selectbox(
+        "Select Part",
+        range(len(part_display_names)),
+        format_func=lambda x: part_display_names[x],
+        help="Choose which part to work with"
+    )
+    
+    if selected_part_index is None:
+        return ("", "")
+    
+    selected_part = parts_folders[selected_part_index]
+    part_number = selected_part_index + 1  # Parts are 1-indexed
+    
+    # Step 2: Choose destination within part
+    st.markdown("---")
+    destination_option = st.radio(
+        f"Where to place pages in Part {part_number}?",
+        ["Directly in Part folder", "In a Chapter within this Part"],
+        help="Choose whether to place pages directly in the part folder or in a specific chapter"
+    )
+    
+    if destination_option == "Directly in Part folder":
+        return selected_part
+    
+    else:  # In a Chapter within this Part
+        chapters_in_part = chapters_by_part.get(part_number, [])
+        
+        if not chapters_in_part:
+            st.warning(f"No chapters found in Part {part_number}. Please create chapters first or choose 'Directly in Part folder'.")
+            return ("", "")
+        
+        chapter_display_names = [chapter[0] for chapter in chapters_in_part]
+        selected_chapter_index = st.selectbox(
+            f"Select Chapter in Part {part_number}",
+            range(len(chapter_display_names)),
+            format_func=lambda x: chapter_display_names[x],
+            help="Choose the specific chapter to assign pages to"
+        )
+        
+        if selected_chapter_index is not None:
+            selected_chapter = chapters_in_part[selected_chapter_index]
+            # Create display name showing the hierarchy
+            chapter_display = f"Part {part_number} → {selected_chapter[0]}"
+            return (chapter_display, selected_chapter[1])  # Return display name and folder_id
+        
+        return ("", "")
 
 def render_page_range_input(destination_info: Tuple[str, str]):
     """Render page range input and extraction controls"""
@@ -128,6 +185,7 @@ def render_page_range_input(destination_info: Tuple[str, str]):
     display_name, folder_id = destination_info
     
     st.markdown("### 📄 Page Range Assignment")
+    st.markdown(f"**Selected Destination:** `{display_name}`")
     
     total_pages = SessionManager.get('total_pages', 0)
     
@@ -178,12 +236,12 @@ def render_assignment_preview(display_name: str, page_ranges: List[str], total_p
         
         with st.expander("📋 Detailed Preview", expanded=True):
             st.markdown("**Files that will be created:**")
-            safe_folder_name = PDFExtractor.sanitize_filename(display_name)
+            safe_folder_name = PDFExtractor.sanitize_filename(display_name.split(" → ")[-1])
             
             # Show first 10 files as preview
             preview_count = min(10, len(pages))
-            for page in pages[:preview_count]:
-                file_name = f"{safe_folder_name}_page_{page}.pdf"
+            for i in range(1, preview_count + 1):  # Sequential numbering from 1
+                file_name = f"{safe_folder_name}_Page_{i}.pdf"
                 st.write(f"📄 {file_name}")
             
             if len(pages) > preview_count:

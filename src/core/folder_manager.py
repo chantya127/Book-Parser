@@ -55,7 +55,7 @@ class FolderManager:
         
         try:
             for i in range(1, num_parts + 1):
-                part_folder = project_path / f"{base_name}_part_{i}"
+                part_folder = project_path / f"{base_name}_Part_{i}"
                 part_folder.mkdir(exist_ok=True)
                 created_parts.append(str(part_folder.absolute()))
             
@@ -95,7 +95,7 @@ class FolderManager:
         
         # Part folders
         for i in range(1, num_parts + 1):
-            preview.append(f"{base_name}_part_{i}")
+            preview.append(f"{base_name}_Part_{i}")
         
         return preview
 
@@ -108,11 +108,11 @@ class ChapterManager:
                                    chapter_name: str = None) -> str:
         """
         Generate chapter folder name following the convention:
-        {base_project_name}_chapter_{chapter_number}_{chapter_name}
+        {base_project_name}_Chapter_{chapter_number}_{chapter_name}
         (skipping the immediate parent part name)
         
         Args:
-            parent_folder: Parent folder name (e.g., CS101_DataStructures_part_1)
+            parent_folder: Parent folder name (e.g., CS101_DataStructures_Part_1)
             chapter_number: Chapter number (can be None)
             chapter_name: Chapter name (can be None)
             
@@ -120,9 +120,9 @@ class ChapterManager:
             Properly formatted chapter folder name
         """
         # Extract base name by removing the part suffix
-        # From "CS101_DataStructures_part_1" get "CS101_DataStructures"
-        if "_part_" in parent_folder.lower():
-            base_name = parent_folder.split("_part_")[0]
+        # From "CS101_DataStructures_Part_1" get "CS101_DataStructures"
+        if "_Part_" in parent_folder:
+            base_name = parent_folder.split("_Part_")[0]
         else:
             base_name = parent_folder
         
@@ -133,9 +133,9 @@ class ChapterManager:
         # If both are null, add random number for uniqueness
         if chapter_num == "null" and chapter_nm == "null":
             random_num = random.randint(10000, 99999)
-            return f"{base_name}_chapter_{chapter_num}_{chapter_nm}_{random_num}"
+            return f"{base_name}_Chapter_{chapter_num}_{chapter_nm}_{random_num}"
         
-        return f"{base_name}_chapter_{chapter_num}_{chapter_nm}"
+        return f"{base_name}_Chapter_{chapter_num}_{chapter_nm}"
     
     @staticmethod
     def generate_unique_chapter_id(base_name: str, part_number: int) -> str:
@@ -163,7 +163,7 @@ class ChapterManager:
         from core.session_manager import SessionManager
         
         created_chapters = []
-        part_folder_name = f"{base_name}_part_{part_number}"
+        part_folder_name = f"{base_name}_Part_{part_number}"
         part_path = project_path / part_folder_name
         
         try:
@@ -176,7 +176,7 @@ class ChapterManager:
                 chapter_id = ChapterManager.generate_unique_chapter_id(base_name, part_number)
                 
                 # Generate proper chapter folder name with full parent prefix
-                # This should be: {parent_folder_name}_chapter_{number}_{name}
+                # This should be: {base_name}_Chapter_{number}_{name}
                 chapter_folder_name = ChapterManager.generate_chapter_folder_name(
                     part_folder_name,
                     chapter.get('number'),
@@ -212,7 +212,7 @@ class ChapterManager:
     @staticmethod
     def rename_chapter_files(chapter_id: str, new_naming_base: str) -> bool:
         """
-        Rename all PDF files in a chapter when chapter name changes
+        Rename all PDF files in a chapter and the chapter folder itself when chapter name changes
         
         Args:
             chapter_id: Unique chapter identifier
@@ -228,31 +228,40 @@ class ChapterManager:
             if chapter_id not in folder_metadata:
                 return False
             
-            chapter_path = Path(folder_metadata[chapter_id]['actual_path'])
-            if not chapter_path.exists():
+            old_chapter_path = Path(folder_metadata[chapter_id]['actual_path'])
+            if not old_chapter_path.exists():
                 return False
             
-            # Find all PDF files in the chapter
-            pdf_files = list(chapter_path.glob("*.pdf"))
+            # Create new chapter folder path with updated name
+            parent_path = old_chapter_path.parent
+            new_chapter_path = parent_path / new_naming_base
+            
+            # Rename the chapter folder itself
+            old_chapter_path.rename(new_chapter_path)
+            
+            # Find all PDF files in the renamed chapter folder
+            pdf_files = list(new_chapter_path.glob("*.pdf"))
             
             for old_file in pdf_files:
                 # Extract page number from filename
                 filename = old_file.name
-                if "_page_" in filename:
-                    page_part = filename.split("_page_")[-1]  # "X.pdf"
-                    new_filename = f"{new_naming_base}_page_{page_part}"
-                    new_file = chapter_path / new_filename
+                if "_Page_" in filename:
+                    page_part = filename.split("_Page_")[-1]  # "X.pdf"
+                    new_filename = f"{new_naming_base}_Page_{page_part}"
+                    new_file = new_chapter_path / new_filename
                     
                     # Rename the file
                     old_file.rename(new_file)
             
-            # Update metadata with new naming base
+            # Update metadata with new paths and naming base
+            folder_metadata[chapter_id]['actual_path'] = str(new_chapter_path.absolute())
             folder_metadata[chapter_id]['naming_base'] = new_naming_base
+            folder_metadata[chapter_id]['folder_name'] = new_naming_base
             SessionManager.set('folder_metadata', folder_metadata)
             
             return True
         except Exception as e:
-            st.error(f"Error renaming files: {str(e)}")
+            st.error(f"Error renaming chapter folder and files: {str(e)}")
             return False
     
     @staticmethod

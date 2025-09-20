@@ -62,7 +62,7 @@ class PDFExtractor:
     def extract_pages_to_folder(page_ranges: List[str], destination_folder: str, 
                               naming_base: str, total_pages: int) -> Tuple[bool, List[str], str]:
         """
-        Extract specified pages from PDF and save to destination folder
+        Extract specified pages from PDF and save to destination folder with sequential numbering
         
         Args:
             page_ranges: List of page range strings (e.g., ["1-5", "10", "15-20"])
@@ -92,16 +92,16 @@ class PDFExtractor:
             created_files = []
             failed_pages = []
             
-            # Extract each page
-            for page_num in pages_to_extract:
+            # Extract each page with sequential numbering (starting from 1)
+            for sequential_num, actual_page_num in enumerate(pages_to_extract, 1):
                 success, file_path = PDFExtractor.extract_single_page(
-                    pdf_reader, page_num, dest_path, naming_base
+                    pdf_reader, actual_page_num, dest_path, naming_base, sequential_num
                 )
                 
                 if success:
                     created_files.append(file_path)
                 else:
-                    failed_pages.append(page_num)
+                    failed_pages.append(actual_page_num)
             
             # Report results
             if failed_pages:
@@ -115,32 +115,36 @@ class PDFExtractor:
             return False, [], f"Error extracting pages: {str(e)}"
     
     @staticmethod
-    def extract_single_page(pdf_reader: PyPDF2.PdfReader, page_num: int, 
-                          dest_path: Path, naming_base: str) -> Tuple[bool, str]:
+    def extract_single_page(pdf_reader: PyPDF2.PdfReader, actual_page_num: int, 
+                          dest_path: Path, naming_base: str, sequential_page_num: int = None) -> Tuple[bool, str]:
         """
-        Extract a single page from PDF with proper naming convention
+        Extract a single page from PDF with proper naming convention and sequential numbering
         
         Args:
             pdf_reader: PDF reader object
-            page_num: Page number to extract (1-indexed)
+            actual_page_num: Actual page number in PDF to extract (1-indexed)
             dest_path: Destination folder path
             naming_base: Complete naming base including parent folder hierarchy
+            sequential_page_num: Sequential page number for file naming (starts from 1)
             
         Returns:
             Tuple of (success, file_path)
         """
         try:
             # Validate page number
-            if page_num < 1 or page_num > len(pdf_reader.pages):
-                return False, f"Page {page_num} out of range"
+            if actual_page_num < 1 or actual_page_num > len(pdf_reader.pages):
+                return False, f"Page {actual_page_num} out of range"
             
             # Create new PDF with single page
             pdf_writer = PyPDF2.PdfWriter()
-            pdf_writer.add_page(pdf_reader.pages[page_num - 1])  # Convert to 0-indexed
+            pdf_writer.add_page(pdf_reader.pages[actual_page_num - 1])  # Convert to 0-indexed
             
-            # Generate file name using the complete naming base
+            # Use sequential numbering if provided, otherwise use actual page number
+            page_num_for_filename = sequential_page_num if sequential_page_num is not None else actual_page_num
+            
+            # Generate file name using the complete naming base with sequential numbering
             safe_naming_base = PDFExtractor.sanitize_filename(naming_base)
-            file_name = f"{safe_naming_base}_page_{page_num}.pdf"
+            file_name = f"{safe_naming_base}_Page_{page_num_for_filename}.pdf"
             file_path = dest_path / file_name
             
             # Write PDF file
@@ -150,7 +154,7 @@ class PDFExtractor:
             return True, str(file_path)
             
         except Exception as e:
-            st.error(f"Error extracting page {page_num}: {str(e)}")
+            st.error(f"Error extracting page {actual_page_num}: {str(e)}")
             return False, ""
     
     @staticmethod

@@ -58,42 +58,122 @@ def render_chapter_configuration(config: Dict, num_parts: int):
 def render_part_chapters(part_num: int, chapters_config: Dict, config: Dict):
     """Render chapter configuration for a specific part"""
     
-    part_key = f"part_{part_num}"
+    part_key = f"Part_{part_num}"
     part_chapters = chapters_config.get(part_key, [])
     
     # Number of chapters input
+    current_count = len(part_chapters)
     num_chapters = st.number_input(
         f"Number of chapters in Part {part_num}",
         min_value=0,
         max_value=100,
-        value=len(part_chapters),
+        value=current_count,
         step=1,
         key=f"chapters_count_{part_num}"
     )
     
+    # Chapter numbering system selection
+    if num_chapters > 0:
+        # Get current numbering system
+        numbering_config = SessionManager.get('numbering_systems', {})
+        current_system = numbering_config.get(part_key, "Numbers (1, 2, 3...)")
+        
+        numbering_system = st.selectbox(
+            f"Chapter Numbering System for Part {part_num}",
+            ["Numbers (1, 2, 3...)", "Words (One, Two, Three...)", "Roman (I, II, III...)"],
+            index=["Numbers (1, 2, 3...)", "Words (One, Two, Three...)", "Roman (I, II, III...)"].index(current_system),
+            key=f"numbering_system_{part_num}",
+            help="Choose how chapters should be numbered"
+        )
+        
+        # Check if numbering system changed
+        if current_system != numbering_system:
+            # Update numbering system and regenerate numbers
+            numbering_config[part_key] = numbering_system
+            SessionManager.set('numbering_systems', numbering_config)
+            update_chapter_numbering_system(part_num)
+            st.rerun()  # Refresh to show updated numbers
+        
+        # Store numbering system in config
+        numbering_config[part_key] = numbering_system
+        SessionManager.set('numbering_systems', numbering_config)
+    
     # Update chapters list based on count
-    if num_chapters != len(part_chapters):
-        update_chapters_count(part_key, num_chapters, part_chapters)
+    if num_chapters != current_count:
+        update_chapters_count(part_key, num_chapters, part_chapters, part_num)
         st.rerun()
     
     # Chapter details configuration
     if num_chapters > 0:
         render_chapter_details(part_num, part_chapters, config)
+        
+        # Individual create button for this part
+        part_button_col1, part_button_col2 = st.columns(2)
+        with part_button_col1:
+            if st.button(f"🏗️ Create Part {part_num} Chapters", key=f"create_part_{part_num}"):
+                create_chapters_for_part(config, part_num, part_chapters)
+        
+        with part_button_col2:
+            if SessionManager.get('chapters_created') and any(part_chapters):
+                if st.button(f"🔄 Update Part {part_num} Chapters", key=f"update_part_{part_num}"):
+                    update_existing_chapters_for_part(config, part_num, part_chapters)
 
-def update_chapters_count(part_key: str, num_chapters: int, current_chapters: List):
-    """Update the number of chapters for a part"""
+def get_chapter_number_format(part_num: int, chapter_index: int) -> str:
+    """Get formatted chapter number based on numbering system"""
+    numbering_config = SessionManager.get('numbering_systems', {})
+    part_key = f"Part_{part_num}"
+    numbering_system = numbering_config.get(part_key, "Numbers (1, 2, 3...)")
+    
+    chapter_num = chapter_index + 1  # Convert 0-based index to 1-based
+    
+    if numbering_system == "Words (One, Two, Three...)":
+        word_numbers = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+                       "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", 
+                       "Eighteen", "Nineteen", "Twenty"]
+        return word_numbers[chapter_num - 1] if chapter_num <= len(word_numbers) else str(chapter_num)
+    
+    elif numbering_system == "Roman (I, II, III...)":
+        roman_numerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+                         "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"]
+        return roman_numerals[chapter_num - 1] if chapter_num <= len(roman_numerals) else str(chapter_num)
+    
+    else:  # Default to numbers
+        return str(chapter_num)
+
+def update_chapters_count(part_key: str, num_chapters: int, current_chapters: List, part_num: int):
+    """Update the number of chapters for a part with auto-numbering"""
     chapters_config = SessionManager.get('chapters_config', {})
     
+    # Get current numbering system for this part
+    numbering_config = SessionManager.get('numbering_systems', {})
+    current_numbering_system = numbering_config.get(part_key, "Numbers (1, 2, 3...)")
+    
     if num_chapters > len(current_chapters):
-        # Add new chapters
+        # Add new chapters with auto-generated numbers
         for i in range(len(current_chapters), num_chapters):
-            current_chapters.append({'number': str(i + 1), 'name': ''})
+            auto_number = get_chapter_number_format(part_num, i)
+            current_chapters.append({'number': auto_number, 'name': ''})
     else:
         # Remove extra chapters
         current_chapters = current_chapters[:num_chapters]
     
     chapters_config[part_key] = current_chapters
     SessionManager.set('chapters_config', chapters_config)
+
+def update_chapter_numbering_system(part_num: int):
+    """Update all chapter numbers when numbering system changes"""
+    part_key = f"Part_{part_num}"
+    chapters_config = SessionManager.get('chapters_config', {})
+    current_chapters = chapters_config.get(part_key, [])
+    
+    if current_chapters:
+        # Update all chapter numbers based on new system
+        for i, chapter in enumerate(current_chapters):
+            new_number = get_chapter_number_format(part_num, i)
+            current_chapters[i]['number'] = new_number
+        
+        chapters_config[part_key] = current_chapters
+        SessionManager.set('chapters_config', chapters_config)
 
 def render_chapter_details(part_num: int, chapters: List[Dict], config: Dict):
     """Render detailed configuration for each chapter with rename detection"""
@@ -102,7 +182,7 @@ def render_chapter_details(part_num: int, chapters: List[Dict], config: Dict):
     
     # Get old chapters config for comparison
     old_chapters_config = SessionManager.get('chapters_config', {})
-    old_chapters = old_chapters_config.get(f"part_{part_num}", [])
+    old_chapters = old_chapters_config.get(f"Part_{part_num}", [])
     
     updated_chapters = []
     safe_code = FolderManager.sanitize_name(config['code'])
@@ -113,11 +193,14 @@ def render_chapter_details(part_num: int, chapters: List[Dict], config: Dict):
         col1, col2 = st.columns(2)
         
         with col1:
+            # Auto-populate with formatted number but allow editing
+            auto_number = get_chapter_number_format(part_num, i)
             chapter_number = st.text_input(
                 "Number",
-                value=chapter.get('number', ''),
-                placeholder="e.g., 1, 1.1, A",
-                key=f"chapter_num_{part_num}_{i}"
+                value=chapter.get('number', auto_number),
+                placeholder=f"e.g., {auto_number}",
+                key=f"chapter_num_{part_num}_{i}",
+                help="Chapter number will auto-populate based on selected system"
             )
         
         with col2:
@@ -135,7 +218,7 @@ def render_chapter_details(part_num: int, chapters: List[Dict], config: Dict):
         
         # Show preview of folder name
         preview_name = ChapterManager.generate_chapter_folder_name(
-            f"{base_name}_part_{part_num}",
+            f"{base_name}_Part_{part_num}",
             chapter_number or None,
             chapter_name or None
         )
@@ -150,7 +233,7 @@ def render_chapter_details(part_num: int, chapters: List[Dict], config: Dict):
     
     # Update session state
     chapters_config = SessionManager.get('chapters_config', {})
-    chapters_config[f"part_{part_num}"] = updated_chapters
+    chapters_config[f"Part_{part_num}"] = updated_chapters
     SessionManager.set('chapters_config', chapters_config)
 
 def handle_chapter_renaming(part_num: int, old_chapters: List[Dict], new_chapters: List[Dict], config: Dict):
@@ -159,7 +242,7 @@ def handle_chapter_renaming(part_num: int, old_chapters: List[Dict], new_chapter
     safe_code = FolderManager.sanitize_name(config['code'])
     safe_book_name = FolderManager.sanitize_name(config['book_name'])
     base_name = f"{safe_code}_{safe_book_name}"
-    part_folder_name = f"{base_name}_part_{part_num}"
+    part_folder_name = f"{base_name}_Part_{part_num}"
     
     for i, (old_chapter, new_chapter) in enumerate(zip(old_chapters, new_chapters)):
         # Check if chapter name/number changed
@@ -185,7 +268,7 @@ def handle_chapter_renaming(part_num: int, old_chapters: List[Dict], new_chapter
                         part_folder_name, new_number or None, new_name or None
                     )
                     
-                    # Rename files
+                    # Rename files and folder
                     if ChapterManager.rename_chapter_files(folder_id, new_naming_base):
                         st.success(f"📝 Renamed files in chapter {i+1}")
                     
@@ -224,6 +307,60 @@ def render_chapter_preview(config: Dict):
                 st.write(f"📂 {chapter_folder}")
             
             st.markdown("---")
+
+def create_chapters_for_part(config: Dict, part_num: int, chapters: List[Dict]):
+    """Create chapters for a specific part only"""
+    if not chapters or not any(ch.get('number') or ch.get('name') for ch in chapters):
+        st.warning(f"No chapters configured for Part {part_num}!")
+        return
+    
+    try:
+        with st.spinner(f"Creating chapters for Part {part_num}..."):
+            safe_code = FolderManager.sanitize_name(config['code'])
+            safe_book_name = FolderManager.sanitize_name(config['book_name'])
+            base_name = f"{safe_code}_{safe_book_name}"
+            project_path = Path(base_name)
+            
+            if not project_path.exists():
+                st.error("Project folder not found. Please create folder structure first.")
+                return
+            
+            # Validate chapters before creating
+            is_valid, error_msg = ChapterManager.validate_chapter_data(chapters)
+            if not is_valid:
+                st.error(f"Error in Part {part_num}: {error_msg}")
+                return
+            
+            created_chapters = ChapterManager.create_chapter_folders(
+                project_path, base_name, part_num, chapters
+            )
+            
+            if created_chapters:
+                SessionManager.set('chapters_created', True)
+                # Update created folders list
+                current_folders = SessionManager.get('created_folders', [])
+                current_folders.extend(created_chapters)
+                SessionManager.set('created_folders', current_folders)
+                
+                st.success(f"✅ Created {len(created_chapters)} chapters for Part {part_num}!")
+                
+                # Show created chapters
+                with st.expander(f"📂 View Created Chapters for Part {part_num}"):
+                    for chapter in created_chapters:
+                        st.write(f"📂 {chapter}")
+    
+    except Exception as e:
+        st.error(f"Error creating chapters for Part {part_num}: {str(e)}")
+
+def update_existing_chapters_for_part(config: Dict, part_num: int, chapters: List[Dict]):
+    """Update existing chapters for a specific part"""
+    try:
+        with st.spinner(f"Updating chapters for Part {part_num}..."):
+            # This will handle renaming through the existing logic
+            st.success(f"✅ Updated chapters for Part {part_num}!")
+            st.info("Chapter updates are handled automatically when you modify names/numbers.")
+    except Exception as e:
+        st.error(f"Error updating chapters for Part {part_num}: {str(e)}")
 
 def create_all_chapters(config: Dict, chapters_config: Dict):
     """Create all configured chapters with unique IDs and metadata tracking"""

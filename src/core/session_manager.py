@@ -22,6 +22,7 @@ class SessionManager:
             'extraction_history': [],  # Track completed extractions
             'folder_metadata': {},  # {folder_id: {display_name, actual_path, type}}
             'unique_chapter_counter': 0,  # For ensuring unique chapter identifiers
+            'numbering_systems': {},  # {Part_1: numbering_system, Part_2: numbering_system}
         }
         
         for key, value in defaults.items():
