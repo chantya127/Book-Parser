@@ -89,8 +89,8 @@ def create_folder_structure(config: dict):
             # Create parts folders if specified
             if num_parts > 0:
                 safe_code = FolderManager.sanitize_name(code)
-                safe_book_name = FolderManager.sanitize_name(book_name)
-                base_name = f"{safe_code}_{safe_book_name}"
+                # FIXED: Keep book name as-is instead of sanitizing
+                base_name = f"{safe_code}_{book_name}"
                 parts_folders = FolderManager.create_parts_folders(project_path, base_name, num_parts)
                 created_folders.extend(parts_folders)
             

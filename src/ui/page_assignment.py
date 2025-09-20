@@ -50,14 +50,16 @@ def render_assignment_interface():
     
     folder_type = st.selectbox(
         "Folder Type",
-        ["Default Folders", "Parts"],
+        ["Default Folders", "Parts", "Create Custom Folder"],  # Added custom folder option
         help="Choose the type of folder to assign pages to"
     )
     
     if folder_type == "Default Folders":
         destination_info = render_default_folder_selection(available_folders['default'])
-    else:  # Parts
+    elif folder_type == "Parts":
         destination_info = render_parts_selection_interface(available_folders)
+    else:  # Create Custom Folder
+        destination_info = render_custom_folder_creation(available_folders)
     
     if destination_info and destination_info[0]:  # Check if destination is selected
         render_page_range_input(destination_info)
@@ -68,28 +70,32 @@ def get_available_folders() -> Dict[str, List[Tuple[str, str]]]:
     folder_metadata = SessionManager.get('folder_metadata', {})
     
     if not config.get('code') or not config.get('book_name'):
-        return {'default': [], 'parts': [], 'chapters': {}}
+        return {'default': [], 'parts': [], 'chapters': {}, 'custom': [], 'all_for_custom': []}
     
     safe_code = FolderManager.sanitize_name(config['code'])
-    safe_book_name = FolderManager.sanitize_name(config['book_name'])
-    base_name = f"{safe_code}_{safe_book_name}"
+    book_name = config['book_name']  # Book name kept as is
+    base_name = f"{safe_code}_{book_name}"
     
     folders = {
         'default': [],
         'parts': [],
-        'chapters': {}  # Organized by part number
+        'chapters': {},  # Organized by part number
+        'custom': [],
+        'all_for_custom': []  # All folders available as parents for custom folders
     }
     
     # Default folders
     for folder in FolderManager.DEFAULT_FOLDERS:
         folder_name = f"{base_name}_{folder}"
         folders['default'].append((folder_name, folder_name))
+        folders['all_for_custom'].append((f"Default → {folder}", folder_name))
     
     # Part folders
     num_parts = config.get('num_parts', 0)
     for i in range(1, num_parts + 1):
         folder_name = f"{base_name}_Part_{i}"
         folders['parts'].append((folder_name, folder_name))
+        folders['all_for_custom'].append((f"Part {i}", folder_name))
         
         # Initialize chapters list for this part
         folders['chapters'][i] = []
@@ -101,8 +107,102 @@ def get_available_folders() -> Dict[str, List[Tuple[str, str]]]:
             if part_num in folders['chapters']:
                 chapter_display_name = metadata['display_name'].split(" → ")[-1]  # Get just the chapter part
                 folders['chapters'][part_num].append((chapter_display_name, folder_id))
+                folders['all_for_custom'].append((metadata['display_name'], folder_id))
+        elif metadata['type'] == 'custom':
+            # Add custom folders to the list
+            folders['custom'].append((metadata['display_name'], folder_id))
+            folders['all_for_custom'].append((metadata['display_name'], folder_id))
     
     return folders
+
+def render_custom_folder_creation(available_folders: Dict) -> Tuple[str, str]:
+    """Render interface for creating custom folders"""
+    
+    all_folders = available_folders['all_for_custom']
+    
+    if not all_folders:
+        st.info("No folders available to create custom folders in.")
+        return ("", "")
+    
+    st.markdown("**Create a custom folder inside an existing folder:**")
+    
+    # Step 1: Select parent folder
+    parent_display_names = [folder[0] for folder in all_folders]
+    selected_parent_index = st.selectbox(
+        "Select Parent Folder",
+        range(len(parent_display_names)),
+        format_func=lambda x: parent_display_names[x],
+        help="Choose the parent folder to create the custom folder in",
+        key="custom_parent_selection"
+    )
+    
+    if selected_parent_index is None:
+        return ("", "")
+    
+    selected_parent = all_folders[selected_parent_index]
+    parent_display, parent_id = selected_parent
+    
+    # Step 2: Enter custom folder name
+    custom_folder_name = st.text_input(
+        "Custom Folder Name",
+        placeholder="e.g., Solutions, Exercises, Notes",
+        help="Enter a name for your custom folder",
+        key="custom_folder_name"
+    )
+    
+    if custom_folder_name.strip():
+        # Step 3: Create folder button
+        if st.button("🏗️ Create Custom Folder", type="primary", key="create_custom_folder"):
+            config = SessionManager.get('project_config', {})
+            safe_code = FolderManager.sanitize_name(config['code'])
+            book_name = config['book_name']  # Book name kept as is
+            base_name = f"{safe_code}_{book_name}"
+            
+            # FIXED: Use consistent path resolution
+            import os
+            current_dir = Path.cwd()
+            
+            possible_paths = [
+                Path(base_name),
+                current_dir / base_name,
+                Path.cwd() / base_name
+            ]
+            
+            project_path = None
+            for path in possible_paths:
+                if path.exists():
+                    project_path = path
+                    break
+            
+            if not project_path:
+                project_path = current_dir / base_name
+                project_path.mkdir(parents=True, exist_ok=True)
+            
+            created_folder_path = FolderManager.create_custom_folder(
+                project_path, base_name, parent_id, custom_folder_name
+            )
+            
+            if created_folder_path:
+                st.success(f"✅ Created custom folder: {custom_folder_name}")
+                st.info(f"📂 Location: {created_folder_path}")
+                st.rerun()  # Refresh to show the new folder in the list
+            else:
+                st.error("❌ Failed to create custom folder")
+        
+        # Show preview of what will be created
+        st.markdown("---")
+        st.markdown("**Preview:**")
+        safe_folder_name = FolderManager.sanitize_name(custom_folder_name)
+        config = SessionManager.get('project_config', {})
+        safe_code = FolderManager.sanitize_name(config['code'])
+        book_name = config['book_name']  # Book name kept as is
+        base_name = f"{safe_code}_{book_name}"
+        preview_name = f"{base_name}_{safe_folder_name}"
+        st.caption(f"📁 Will create: `{parent_display} → {preview_name}`")
+        
+        return (f"{parent_display} → {preview_name}", f"preview_{parent_id}_{safe_folder_name}")
+    
+    return ("", "")
 
 def render_default_folder_selection(default_folders: List[Tuple[str, str]]) -> Tuple[str, str]:
     """Render selection for default folders"""
@@ -125,6 +225,7 @@ def render_parts_selection_interface(available_folders: Dict) -> Tuple[str, str]
     
     parts_folders = available_folders['parts']
     chapters_by_part = available_folders['chapters']
+    custom_folders = available_folders.get('custom', [])
     
     if not parts_folders:
         st.info("No parts available.")
@@ -147,16 +248,24 @@ def render_parts_selection_interface(available_folders: Dict) -> Tuple[str, str]
     
     # Step 2: Choose destination within part
     st.markdown("---")
+    
+    options = ["Directly in Part folder", "In a Chapter within this Part"]
+    
+    # Add custom folders option if there are custom folders in this part
+    part_custom_folders = [cf for cf in custom_folders if f"Part {part_number}" in cf[0]]
+    if part_custom_folders:
+        options.append("In a Custom folder within this Part")
+    
     destination_option = st.radio(
         f"Where to place pages in Part {part_number}?",
-        ["Directly in Part folder", "In a Chapter within this Part"],
-        help="Choose whether to place pages directly in the part folder or in a specific chapter"
+        options,
+        help="Choose whether to place pages directly in the part folder, in a specific chapter, or in a custom folder"
     )
     
     if destination_option == "Directly in Part folder":
         return selected_part
     
-    else:  # In a Chapter within this Part
+    elif destination_option == "In a Chapter within this Part":
         chapters_in_part = chapters_by_part.get(part_number, [])
         
         if not chapters_in_part:
@@ -173,9 +282,27 @@ def render_parts_selection_interface(available_folders: Dict) -> Tuple[str, str]
         
         if selected_chapter_index is not None:
             selected_chapter = chapters_in_part[selected_chapter_index]
-            # Create display name showing the hierarchy
             chapter_display = f"Part {part_number} → {selected_chapter[0]}"
-            return (chapter_display, selected_chapter[1])  # Return display name and folder_id
+            return (chapter_display, selected_chapter[1])
+        
+        return ("", "")
+    
+    elif destination_option == "In a Custom folder within this Part":
+        if not part_custom_folders:
+            st.warning(f"No custom folders found in Part {part_number}.")
+            return ("", "")
+        
+        custom_display_names = [cf[0] for cf in part_custom_folders]
+        selected_custom_index = st.selectbox(
+            f"Select Custom Folder in Part {part_number}",
+            range(len(custom_display_names)),
+            format_func=lambda x: custom_display_names[x],
+            help="Choose the specific custom folder to assign pages to"
+        )
+        
+        if selected_custom_index is not None:
+            selected_custom = part_custom_folders[selected_custom_index]
+            return selected_custom
         
         return ("", "")
 
@@ -183,6 +310,11 @@ def render_page_range_input(destination_info: Tuple[str, str]):
     """Render page range input and extraction controls"""
     
     display_name, folder_id = destination_info
+    
+    # Skip if this is a preview (not yet created)
+    if folder_id.startswith("preview_"):
+        st.info("Please create the custom folder first before assigning pages.")
+        return
     
     st.markdown("### 📄 Page Range Assignment")
     st.markdown(f"**Selected Destination:** `{display_name}`")
@@ -199,19 +331,19 @@ def render_page_range_input(destination_info: Tuple[str, str]):
         key="page_ranges_input"
     )
     
-    # Show buttons even when text area is empty, but disable extract if no ranges
+    # Show buttons - make them primary (red) from the start
     col1, col2 = st.columns(2)
     
     with col1:
         preview_disabled = not page_ranges_text.strip()
-        if st.button("📋 Preview Assignment", type="secondary", disabled=preview_disabled):
+        if st.button("📋 Preview Assignment", type="primary", disabled=preview_disabled, key="preview_btn"):
             if page_ranges_text.strip():
                 page_ranges = [r.strip() for r in page_ranges_text.split(',') if r.strip()]
                 render_assignment_preview(display_name, page_ranges, total_pages)
     
     with col2:
         extract_disabled = not page_ranges_text.strip()
-        if st.button("🚀 Extract Pages", type="primary", disabled=extract_disabled):
+        if st.button("🚀 Extract Pages", type="primary", disabled=extract_disabled, key="extract_btn"):
             if page_ranges_text.strip():
                 page_ranges = [r.strip() for r in page_ranges_text.split(',') if r.strip()]
                 execute_page_extraction(destination_info, page_ranges, total_pages)
@@ -264,15 +396,15 @@ def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List
     
     # Determine actual folder path and naming base
     if folder_id in folder_metadata:
-        # Chapter folder - use stored path and naming base
+        # Chapter or custom folder - use stored path and naming base
         metadata = folder_metadata[folder_id]
         folder_path = Path(metadata['actual_path'])
         file_naming_base = metadata['naming_base']
     else:
         # Default or part folder - direct path
         safe_code = FolderManager.sanitize_name(config['code'])
-        safe_book_name = FolderManager.sanitize_name(config['book_name'])
-        base_name = f"{safe_code}_{safe_book_name}"
+        book_name = config['book_name']  # Book name kept as is
+        base_name = f"{safe_code}_{book_name}"
         folder_path = Path(base_name) / folder_id
         file_naming_base = folder_id
     

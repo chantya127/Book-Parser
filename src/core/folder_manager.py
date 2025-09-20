@@ -16,7 +16,7 @@ class FolderManager:
         
         Args:
             code: Project code
-            book_name: Book name
+            book_name: Book name (kept as is, no sanitization)
             
         Returns:
             Tuple of (project path, list of created folders)
@@ -25,10 +25,9 @@ class FolderManager:
             return None, []
         
         try:
-            # Sanitize names for folder creation
+            # Sanitize only the code, keep book name as is
             safe_code = FolderManager.sanitize_name(code)
-            safe_book_name = FolderManager.sanitize_name(book_name)
-            base_name = f"{safe_code}_{safe_book_name}"
+            base_name = f"{safe_code}_{book_name}"  # Book name kept as is
             
             # Create main project folder
             project_path = Path(base_name)
@@ -65,6 +64,62 @@ class FolderManager:
             return []
     
     @staticmethod
+    def create_custom_folder(project_path: Path, base_name: str, parent_folder_id: str, custom_folder_name: str) -> Optional[str]:
+        """
+        Create a custom folder inside any existing folder
+        
+        Args:
+            project_path: Main project path
+            base_name: Base project name
+            parent_folder_id: ID of the parent folder
+            custom_folder_name: Name for the new custom folder
+            
+        Returns:
+            Path of created folder or None if failed
+        """
+        try:
+            from core.session_manager import SessionManager
+            
+            # Sanitize the custom folder name
+            safe_folder_name = FolderManager.sanitize_name(custom_folder_name)
+            folder_metadata = SessionManager.get('folder_metadata', {})
+            
+            # Determine parent folder path
+            if parent_folder_id in folder_metadata:
+                # Parent is a tracked folder (chapter, etc.)
+                parent_path = Path(folder_metadata[parent_folder_id]['actual_path'])
+                parent_display = folder_metadata[parent_folder_id]['display_name']
+            else:
+                # Parent is a direct folder (part, default folder)
+                parent_path = project_path / parent_folder_id
+                parent_display = parent_folder_id
+            
+            # Create the custom folder
+            custom_folder_path = parent_path / f"{base_name}_{safe_folder_name}"
+            custom_folder_path.mkdir(exist_ok=True)
+            
+            # Generate unique ID for the custom folder
+            import random
+            custom_folder_id = f"custom_{safe_folder_name}_{random.randint(10000, 99999)}"
+            
+            # Store metadata
+            folder_metadata[custom_folder_id] = {
+                'display_name': f"{parent_display} → {safe_folder_name}",
+                'actual_path': str(custom_folder_path.absolute()),
+                'type': 'custom',
+                'parent_id': parent_folder_id,
+                'folder_name': safe_folder_name,
+                'naming_base': f"{base_name}_{safe_folder_name}"
+            }
+            
+            SessionManager.set('folder_metadata', folder_metadata)
+            return str(custom_folder_path.absolute())
+            
+        except Exception as e:
+            st.error(f"Error creating custom folder: {str(e)}")
+            return None
+    
+    @staticmethod
     def sanitize_name(name: str) -> str:
         """Sanitize name for folder creation"""
         # Replace problematic characters
@@ -85,8 +140,7 @@ class FolderManager:
             return []
         
         safe_code = FolderManager.sanitize_name(code)
-        safe_book_name = FolderManager.sanitize_name(book_name)
-        base_name = f"{safe_code}_{safe_book_name}"
+        base_name = f"{safe_code}_{book_name}"  # Book name kept as is
         preview = []
         
         # Default folders
@@ -109,7 +163,6 @@ class ChapterManager:
         """
         Generate chapter folder name following the convention:
         {base_project_name}_Chapter_{chapter_number}_{chapter_name}
-        (skipping the immediate parent part name)
         
         Args:
             parent_folder: Parent folder name (e.g., CS101_DataStructures_Part_1)
@@ -120,18 +173,25 @@ class ChapterManager:
             Properly formatted chapter folder name
         """
         # Extract base name by removing the part suffix
-        # From "CS101_DataStructures_Part_1" get "CS101_DataStructures"
         if "_Part_" in parent_folder:
             base_name = parent_folder.split("_Part_")[0]
         else:
             base_name = parent_folder
         
-        # Handle missing values
-        chapter_num = chapter_number if chapter_number else "null"
-        chapter_nm = FolderManager.sanitize_name(chapter_name) if chapter_name else "null"
+        # Handle missing values with improved formatting
+        if chapter_number is None or chapter_number.strip() == "":
+            chapter_num = "null"
+        else:
+            chapter_num = chapter_number.strip()
+        
+        if chapter_name is None or chapter_name.strip() == "":
+            chapter_nm = "Null_Name"  # Better formatting for null names
+        else:
+            # FIXED: Don't sanitize chapter name - keep it as is to avoid underscores
+            chapter_nm = chapter_name.strip()
         
         # If both are null, add random number for uniqueness
-        if chapter_num == "null" and chapter_nm == "null":
+        if chapter_num == "null" and chapter_nm == "Null_Name":
             random_num = random.randint(10000, 99999)
             return f"{base_name}_Chapter_{chapter_num}_{chapter_nm}_{random_num}"
         
@@ -176,7 +236,6 @@ class ChapterManager:
                 chapter_id = ChapterManager.generate_unique_chapter_id(base_name, part_number)
                 
                 # Generate proper chapter folder name with full parent prefix
-                # This should be: {base_name}_Chapter_{number}_{name}
                 chapter_folder_name = ChapterManager.generate_chapter_folder_name(
                     part_folder_name,
                     chapter.get('number'),
@@ -184,7 +243,6 @@ class ChapterManager:
                 )
                 
                 # Create actual folder with the complete naming convention
-                # The folder should be named with full prefix inside the part folder
                 chapter_path = part_path / chapter_folder_name
                 chapter_path.mkdir(exist_ok=True)
                 
@@ -213,13 +271,6 @@ class ChapterManager:
     def rename_chapter_files(chapter_id: str, new_naming_base: str) -> bool:
         """
         Rename all PDF files in a chapter and the chapter folder itself when chapter name changes
-        
-        Args:
-            chapter_id: Unique chapter identifier
-            new_naming_base: New base name for files
-            
-        Returns:
-            Success status
         """
         from core.session_manager import SessionManager
         
@@ -291,8 +342,9 @@ class ChapterManager:
         if not chapters:
             return False, "No chapters defined"
         
-        # Check for duplicate chapter numbers (if provided)
-        numbers = [ch.get('number') for ch in chapters if ch.get('number') and ch.get('number') != '']
+        # Check for duplicate chapter numbers (if provided and not null)
+        numbers = [ch.get('number') for ch in chapters 
+                  if ch.get('number') and ch.get('number') != '' and ch.get('number') != 'null']
         if len(numbers) != len(set(numbers)):
             return False, "Duplicate chapter numbers found"
         

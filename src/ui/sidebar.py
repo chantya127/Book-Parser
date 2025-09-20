@@ -1,4 +1,3 @@
-
 # src/ui/sidebar.py
 import streamlit as st
 from core.session_manager import SessionManager
@@ -70,8 +69,8 @@ def render_project_details_section():
     book_name = st.text_input(
         "Book Name",
         value=config.get('book_name', ''),
-        placeholder="e.g., DataStructures",
-        help="Book name (will be used in folder names)"
+        placeholder="e.g., Data Structures and Algorithms",
+        help="Book name (will be kept as-is in folder names - no underscores added)"
     )
     
     if code and book_name:
