@@ -1,5 +1,3 @@
-
-# src/core/folder_manager.py
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 import streamlit as st
@@ -9,7 +7,7 @@ import os
 class FolderManager:
     """Manages folder structure creation and organization"""
     
-    DEFAULT_FOLDERS = ['Prologue', 'Index', 'Epilogue', 'Prologue']
+    DEFAULT_FOLDERS = ['prologue', 'index', 'epilogue']
     
     @staticmethod
     def create_project_structure(code: str, book_name: str) -> Tuple[Optional[Path], List[str]]:
@@ -110,16 +108,24 @@ class ChapterManager:
                                    chapter_name: str = None) -> str:
         """
         Generate chapter folder name following the convention:
-        {parent_folder_name}_chapter_{chapter_number}_{chapter_name}
+        {base_project_name}_chapter_{chapter_number}_{chapter_name}
+        (skipping the immediate parent part name)
         
         Args:
-            parent_folder: Parent folder name
+            parent_folder: Parent folder name (e.g., CS101_DataStructures_part_1)
             chapter_number: Chapter number (can be None)
             chapter_name: Chapter name (can be None)
             
         Returns:
             Properly formatted chapter folder name
         """
+        # Extract base name by removing the part suffix
+        # From "CS101_DataStructures_part_1" get "CS101_DataStructures"
+        if "_part_" in parent_folder.lower():
+            base_name = parent_folder.split("_part_")[0]
+        else:
+            base_name = parent_folder
+        
         # Handle missing values
         chapter_num = chapter_number if chapter_number else "null"
         chapter_nm = FolderManager.sanitize_name(chapter_name) if chapter_name else "null"
@@ -127,15 +133,23 @@ class ChapterManager:
         # If both are null, add random number for uniqueness
         if chapter_num == "null" and chapter_nm == "null":
             random_num = random.randint(10000, 99999)
-            return f"{parent_folder}_chapter_{chapter_num}_{chapter_nm}_{random_num}"
+            return f"{base_name}_chapter_{chapter_num}_{chapter_nm}_{random_num}"
         
-        return f"{parent_folder}_chapter_{chapter_num}_{chapter_nm}"
+        return f"{base_name}_chapter_{chapter_num}_{chapter_nm}"
+    
+    @staticmethod
+    def generate_unique_chapter_id(base_name: str, part_number: int) -> str:
+        """Generate unique identifier for chapter"""
+        from core.session_manager import SessionManager
+        counter = SessionManager.get('unique_chapter_counter', 0) + 1
+        SessionManager.set('unique_chapter_counter', counter)
+        return f"{base_name}_part_{part_number}_chapter_{counter}"
     
     @staticmethod
     def create_chapter_folders(project_path: Path, base_name: str, part_number: int, 
                              chapters: List[Dict]) -> List[str]:
         """
-        Create chapter folders within a part
+        Create chapter folders within a part with proper naming convention
         
         Args:
             project_path: Main project path
@@ -146,6 +160,8 @@ class ChapterManager:
         Returns:
             List of created chapter folder paths
         """
+        from core.session_manager import SessionManager
+        
         created_chapters = []
         part_folder_name = f"{base_name}_part_{part_number}"
         part_path = project_path / part_folder_name
@@ -153,23 +169,91 @@ class ChapterManager:
         try:
             # Ensure part folder exists
             part_path.mkdir(exist_ok=True)
+            folder_metadata = SessionManager.get('folder_metadata', {})
             
             for chapter in chapters:
+                # Generate unique ID for metadata tracking
+                chapter_id = ChapterManager.generate_unique_chapter_id(base_name, part_number)
+                
+                # Generate proper chapter folder name with full parent prefix
+                # This should be: {parent_folder_name}_chapter_{number}_{name}
                 chapter_folder_name = ChapterManager.generate_chapter_folder_name(
                     part_folder_name,
                     chapter.get('number'),
                     chapter.get('name')
                 )
                 
-                # Create chapter folder inside the part folder
-                chapter_path = part_path / chapter_folder_name.split(f"{part_folder_name}_")[-1]
+                # Create actual folder with the complete naming convention
+                # The folder should be named with full prefix inside the part folder
+                chapter_path = part_path / chapter_folder_name
                 chapter_path.mkdir(exist_ok=True)
+                
+                # Store metadata mapping
+                display_name = f"Part {part_number} → {chapter_folder_name}"
+                folder_metadata[chapter_id] = {
+                    'display_name': display_name,
+                    'actual_path': str(chapter_path.absolute()),
+                    'type': 'chapter',
+                    'parent_part': part_number,
+                    'chapter_number': chapter.get('number', ''),
+                    'chapter_name': chapter.get('name', ''),
+                    'naming_base': chapter_folder_name,  # Full name for file naming
+                    'folder_name': chapter_folder_name   # Complete folder name
+                }
+                
                 created_chapters.append(str(chapter_path.absolute()))
             
+            SessionManager.set('folder_metadata', folder_metadata)
             return created_chapters
         except Exception as e:
             st.error(f"Error creating chapter folders: {str(e)}")
             return []
+    
+    @staticmethod
+    def rename_chapter_files(chapter_id: str, new_naming_base: str) -> bool:
+        """
+        Rename all PDF files in a chapter when chapter name changes
+        
+        Args:
+            chapter_id: Unique chapter identifier
+            new_naming_base: New base name for files
+            
+        Returns:
+            Success status
+        """
+        from core.session_manager import SessionManager
+        
+        try:
+            folder_metadata = SessionManager.get('folder_metadata', {})
+            if chapter_id not in folder_metadata:
+                return False
+            
+            chapter_path = Path(folder_metadata[chapter_id]['actual_path'])
+            if not chapter_path.exists():
+                return False
+            
+            # Find all PDF files in the chapter
+            pdf_files = list(chapter_path.glob("*.pdf"))
+            
+            for old_file in pdf_files:
+                # Extract page number from filename
+                filename = old_file.name
+                if "_page_" in filename:
+                    page_part = filename.split("_page_")[-1]  # "X.pdf"
+                    new_filename = f"{new_naming_base}_page_{page_part}"
+                    new_file = chapter_path / new_filename
+                    
+                    # Rename the file
+                    old_file.rename(new_file)
+            
+            # Update metadata with new naming base
+            folder_metadata[chapter_id]['naming_base'] = new_naming_base
+            SessionManager.set('folder_metadata', folder_metadata)
+            
+            return True
+        except Exception as e:
+            st.error(f"Error renaming files: {str(e)}")
+            return False
     
     @staticmethod
     def get_chapters_preview(base_name: str, part_number: int, chapters: List[Dict]) -> List[str]:

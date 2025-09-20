@@ -1,4 +1,3 @@
-# src/core/session_manager.py
 import streamlit as st
 from typing import Dict, Any
 
@@ -20,7 +19,9 @@ class SessionManager:
             'current_step': 1,
             'chapters_created': False,
             'page_assignments': {},  # Track page assignments
-            'extraction_history': []  # Track completed extractions
+            'extraction_history': [],  # Track completed extractions
+            'folder_metadata': {},  # {folder_id: {display_name, actual_path, type}}
+            'unique_chapter_counter': 0,  # For ensuring unique chapter identifiers
         }
         
         for key, value in defaults.items():
@@ -43,4 +44,3 @@ class SessionManager:
         if 'project_config' not in st.session_state:
             st.session_state.project_config = {}
         st.session_state.project_config.update(updates)
-

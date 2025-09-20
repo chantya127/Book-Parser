@@ -1,5 +1,3 @@
-
-# src/ui/chapter_management.py
 import streamlit as st
 from typing import Dict, List
 from core.session_manager import SessionManager
@@ -98,9 +96,13 @@ def update_chapters_count(part_key: str, num_chapters: int, current_chapters: Li
     SessionManager.set('chapters_config', chapters_config)
 
 def render_chapter_details(part_num: int, chapters: List[Dict], config: Dict):
-    """Render detailed configuration for each chapter"""
+    """Render detailed configuration for each chapter with rename detection"""
     
     st.markdown(f"**Configure chapters for Part {part_num}:**")
+    
+    # Get old chapters config for comparison
+    old_chapters_config = SessionManager.get('chapters_config', {})
+    old_chapters = old_chapters_config.get(f"part_{part_num}", [])
     
     updated_chapters = []
     safe_code = FolderManager.sanitize_name(config['code'])
@@ -142,10 +144,58 @@ def render_chapter_details(part_num: int, chapters: List[Dict], config: Dict):
         if i < len(chapters) - 1:  # Don't show separator after last chapter
             st.markdown("---")
     
+    # Check for chapter name/number changes and handle file renaming
+    if len(old_chapters) == len(updated_chapters) and SessionManager.get('chapters_created'):
+        handle_chapter_renaming(part_num, old_chapters, updated_chapters, config)
+    
     # Update session state
     chapters_config = SessionManager.get('chapters_config', {})
     chapters_config[f"part_{part_num}"] = updated_chapters
     SessionManager.set('chapters_config', chapters_config)
+
+def handle_chapter_renaming(part_num: int, old_chapters: List[Dict], new_chapters: List[Dict], config: Dict):
+    """Handle renaming of chapter files when chapter details change"""
+    folder_metadata = SessionManager.get('folder_metadata', {})
+    safe_code = FolderManager.sanitize_name(config['code'])
+    safe_book_name = FolderManager.sanitize_name(config['book_name'])
+    base_name = f"{safe_code}_{safe_book_name}"
+    part_folder_name = f"{base_name}_part_{part_num}"
+    
+    for i, (old_chapter, new_chapter) in enumerate(zip(old_chapters, new_chapters)):
+        # Check if chapter name/number changed
+        old_name = old_chapter.get('name', '').strip()
+        old_number = old_chapter.get('number', '').strip()
+        new_name = new_chapter.get('name', '').strip()
+        new_number = new_chapter.get('number', '').strip()
+        
+        if old_name != new_name or old_number != new_number:
+            # Find corresponding chapter folder and rename files
+            for folder_id, metadata in folder_metadata.items():
+                if (metadata['type'] == 'chapter' and 
+                    metadata['parent_part'] == part_num and
+                    metadata['chapter_number'] == old_number and
+                    metadata['chapter_name'] == old_name):
+                    
+                    # Update metadata
+                    metadata['chapter_number'] = new_number
+                    metadata['chapter_name'] = new_name
+                    
+                    # Generate new naming base
+                    new_naming_base = ChapterManager.generate_chapter_folder_name(
+                        part_folder_name, new_number or None, new_name or None
+                    )
+                    
+                    # Rename files
+                    if ChapterManager.rename_chapter_files(folder_id, new_naming_base):
+                        st.success(f"📝 Renamed files in chapter {i+1}")
+                    
+                    # Update display name and naming base
+                    display_chapter_name = new_naming_base.split(f'{part_folder_name}_')[-1]
+                    metadata['display_name'] = f"Part {part_num} → {display_chapter_name}"
+                    metadata['naming_base'] = new_naming_base
+                    break
+    
+    SessionManager.set('folder_metadata', folder_metadata)
 
 def render_chapter_preview(config: Dict):
     """Render chapter structure preview"""
@@ -176,7 +226,7 @@ def render_chapter_preview(config: Dict):
             st.markdown("---")
 
 def create_all_chapters(config: Dict, chapters_config: Dict):
-    """Create all configured chapters"""
+    """Create all configured chapters with unique IDs and metadata tracking"""
     
     if not any(chapters_config.values()):
         st.warning("No chapters configured!")

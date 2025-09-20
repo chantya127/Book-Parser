@@ -1,4 +1,3 @@
-# src/ui/page_assignment.py
 import streamlit as st
 from typing import Dict, List, Tuple
 from core.session_manager import SessionManager
@@ -55,15 +54,15 @@ def render_assignment_interface():
         help="Choose the type of folder to assign pages to"
     )
     
-    destination_folder = render_folder_selection(folder_type, available_folders)
+    destination_info = render_folder_selection(folder_type, available_folders)
     
-    if destination_folder:
-        render_page_range_input(destination_folder)
+    if destination_info and destination_info[0]:  # Check if destination is selected
+        render_page_range_input(destination_info)
 
-def get_available_folders() -> Dict[str, List[str]]:
-    """Get all available folders organized by type"""
+def get_available_folders() -> Dict[str, List[Tuple[str, str]]]:
+    """Get all available folders with (display_name, folder_id) tuples"""
     config = SessionManager.get('project_config', {})
-    chapters_config = SessionManager.get('chapters_config', {})
+    folder_metadata = SessionManager.get('folder_metadata', {})
     
     if not config.get('code') or not config.get('book_name'):
         return {'default': [], 'parts': [], 'chapters': []}
@@ -80,32 +79,24 @@ def get_available_folders() -> Dict[str, List[str]]:
     
     # Default folders
     for folder in FolderManager.DEFAULT_FOLDERS:
-        folders['default'].append(f"{base_name}_{folder}")
+        folder_name = f"{base_name}_{folder}"
+        folders['default'].append((folder_name, folder_name))
     
     # Part folders
     num_parts = config.get('num_parts', 0)
     for i in range(1, num_parts + 1):
-        folders['parts'].append(f"{base_name}_part_{i}")
+        folder_name = f"{base_name}_part_{i}"
+        folders['parts'].append((folder_name, folder_name))
     
-    # Chapter folders (updated to show they are inside parts)
-    for part_key, chapters in chapters_config.items():
-        if chapters:
-            part_num = int(part_key.split('_')[1])
-            for chapter in chapters:
-                if chapter.get('number') or chapter.get('name'):  # Only include configured chapters
-                    chapter_folder = ChapterManager.generate_chapter_folder_name(
-                        f"{base_name}_part_{part_num}",
-                        chapter.get('number'),
-                        chapter.get('name')
-                    )
-                    # Extract just the chapter part for display (it will be inside the part folder)
-                    chapter_name_only = chapter_folder.split(f"{base_name}_part_{part_num}_")[-1]
-                    folders['chapters'].append(f"Part {part_num} → {chapter_name_only}")
+    # Chapter folders from metadata
+    for folder_id, metadata in folder_metadata.items():
+        if metadata['type'] == 'chapter':
+            folders['chapters'].append((metadata['display_name'], folder_id))
     
     return folders
 
-def render_folder_selection(folder_type: str, available_folders: Dict[str, List[str]]) -> str:
-    """Render folder selection based on type"""
+def render_folder_selection(folder_type: str, available_folders: Dict[str, List[Tuple[str, str]]]) -> Tuple[str, str]:
+    """Render folder selection based on type and return (display_name, folder_id)"""
     
     folder_mapping = {
         "Default Folders": "default",
@@ -118,18 +109,23 @@ def render_folder_selection(folder_type: str, available_folders: Dict[str, List[
     
     if not folders:
         st.info(f"No {folder_type.lower()} available.")
-        return ""
+        return ("", "")
     
-    selected_folder = st.selectbox(
+    # Create selectbox with display names but track IDs
+    display_names = [folder[0] for folder in folders]
+    selected_index = st.selectbox(
         f"Select {folder_type[:-1]}",
-        folders,
+        range(len(display_names)),
+        format_func=lambda x: display_names[x],
         help=f"Choose the specific {folder_type.lower()[:-1]} to assign pages to"
     )
     
-    return selected_folder
+    return folders[selected_index] if selected_index is not None else ("", "")
 
-def render_page_range_input(destination_folder: str):
+def render_page_range_input(destination_info: Tuple[str, str]):
     """Render page range input and extraction controls"""
+    
+    display_name, folder_id = destination_info
     
     st.markdown("### 📄 Page Range Assignment")
     
@@ -153,14 +149,14 @@ def render_page_range_input(destination_folder: str):
         if st.button("📋 Preview Assignment", type="secondary", disabled=preview_disabled):
             if page_ranges_text.strip():
                 page_ranges = [r.strip() for r in page_ranges_text.split(',') if r.strip()]
-                render_assignment_preview(destination_folder, page_ranges, total_pages)
+                render_assignment_preview(display_name, page_ranges, total_pages)
     
     with col2:
         extract_disabled = not page_ranges_text.strip()
         if st.button("🚀 Extract Pages", type="primary", disabled=extract_disabled):
             if page_ranges_text.strip():
                 page_ranges = [r.strip() for r in page_ranges_text.split(',') if r.strip()]
-                execute_page_extraction(destination_folder, page_ranges, total_pages)
+                execute_page_extraction(destination_info, page_ranges, total_pages)
     
     # Show preview of page ranges if text is entered
     if page_ranges_text.strip():
@@ -172,17 +168,17 @@ def render_page_range_input(destination_folder: str):
         else:
             st.info(preview)
 
-def render_assignment_preview(destination_folder: str, page_ranges: List[str], total_pages: int):
+def render_assignment_preview(display_name: str, page_ranges: List[str], total_pages: int):
     """Render preview of page assignment"""
     
     pages = PDFExtractor.parse_page_ranges(page_ranges, total_pages)
     
     if pages:
-        st.success(f"Ready to extract {len(pages)} pages to: `{destination_folder}`")
+        st.success(f"Ready to extract {len(pages)} pages to: `{display_name}`")
         
         with st.expander("📋 Detailed Preview", expanded=True):
             st.markdown("**Files that will be created:**")
-            safe_folder_name = PDFExtractor.sanitize_filename(destination_folder)
+            safe_folder_name = PDFExtractor.sanitize_filename(display_name)
             
             # Show first 10 files as preview
             preview_count = min(10, len(pages))
@@ -193,41 +189,39 @@ def render_assignment_preview(destination_folder: str, page_ranges: List[str], t
             if len(pages) > preview_count:
                 st.write(f"... and {len(pages) - preview_count} more files")
                 
-            st.markdown(f"**Destination:** `{destination_folder}`")
+            st.markdown(f"**Destination:** `{display_name}`")
     else:
         st.error("No valid pages found in the specified ranges")
 
-def execute_page_extraction(destination_folder: str, page_ranges: List[str], total_pages: int):
-    """Execute the page extraction process"""
+def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List[str], total_pages: int):
+    """Execute the page extraction process with proper path resolution"""
     
+    display_name, folder_id = destination_info
     config = SessionManager.get('project_config', {})
+    folder_metadata = SessionManager.get('folder_metadata', {})
     
     if not config.get('code') or not config.get('book_name'):
         st.error("Project not configured properly. Please complete project setup.")
         return
     
-    # Handle chapter folder path determination
-    safe_code = FolderManager.sanitize_name(config['code'])
-    safe_book_name = FolderManager.sanitize_name(config['book_name'])
-    base_name = f"{safe_code}_{safe_book_name}"
-    
-    # Check if this is a chapter folder (contains "Part X →")
-    if "Part " in destination_folder and " → " in destination_folder:
-        # Extract part number and chapter name
-        part_info, chapter_info = destination_folder.split(" → ")
-        part_num = part_info.split("Part ")[-1]
-        
-        # Build the actual folder path: base/part/chapter
-        part_folder = f"{base_name}_part_{part_num}"
-        chapter_folder = f"chapter_{chapter_info}"
-        folder_path = Path(base_name) / part_folder / chapter_folder
-        
-        # For naming, use the full chapter name
-        file_naming_base = f"{part_folder}_chapter_{chapter_info}"
+    # Determine actual folder path and naming base
+    if folder_id in folder_metadata:
+        # Chapter folder - use stored path and naming base
+        metadata = folder_metadata[folder_id]
+        folder_path = Path(metadata['actual_path'])
+        file_naming_base = metadata['naming_base']
     else:
-        # Regular folder (default or part)
-        folder_path = Path(base_name) / destination_folder
-        file_naming_base = destination_folder
+        # Default or part folder - direct path
+        safe_code = FolderManager.sanitize_name(config['code'])
+        safe_book_name = FolderManager.sanitize_name(config['book_name'])
+        base_name = f"{safe_code}_{safe_book_name}"
+        folder_path = Path(base_name) / folder_id
+        file_naming_base = folder_id
+    
+    # Ensure the folder exists
+    if not folder_path.exists():
+        st.error(f"Destination folder does not exist: {folder_path}")
+        return
     
     # Progress bar
     progress_bar = st.progress(0)
@@ -235,7 +229,7 @@ def execute_page_extraction(destination_folder: str, page_ranges: List[str], tot
     
     try:
         # Execute extraction
-        status_text.text(f"Extracting pages to {destination_folder}...")
+        status_text.text(f"Extracting pages to {display_name}...")
         progress_bar.progress(20)
         
         success, created_files, error_msg = PDFExtractor.extract_pages_to_folder(
@@ -251,10 +245,12 @@ def execute_page_extraction(destination_folder: str, page_ranges: List[str], tot
             # Update extraction history
             extraction_history = SessionManager.get('extraction_history', [])
             extraction_record = {
-                'destination': destination_folder,
+                'destination': display_name,
+                'destination_path': str(folder_path),
                 'pages_extracted': len(created_files),
                 'page_ranges': page_ranges,
-                'files_created': created_files
+                'files_created': created_files,
+                'folder_id': folder_id
             }
             extraction_history.append(extraction_record)
             SessionManager.set('extraction_history', extraction_history)
@@ -307,6 +303,7 @@ def render_assignment_summary():
                         expanded=i == 0):
             st.write(f"**Page Ranges:** {', '.join(record['page_ranges'])}")
             st.write(f"**Files Created:** {len(record['files_created'])}")
+            st.write(f"**Location:** {record.get('destination_path', 'Unknown')}")
             
             # Show sample files
             if record['files_created']:

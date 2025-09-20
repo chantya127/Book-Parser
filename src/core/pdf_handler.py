@@ -1,5 +1,3 @@
-
-# src/core/pdf_handler.py
 import PyPDF2
 from io import BytesIO
 import streamlit as st
@@ -62,14 +60,14 @@ class PDFExtractor:
     
     @staticmethod
     def extract_pages_to_folder(page_ranges: List[str], destination_folder: str, 
-                              folder_name: str, total_pages: int) -> Tuple[bool, List[str], str]:
+                              naming_base: str, total_pages: int) -> Tuple[bool, List[str], str]:
         """
         Extract specified pages from PDF and save to destination folder
         
         Args:
             page_ranges: List of page range strings (e.g., ["1-5", "10", "15-20"])
             destination_folder: Target folder path
-            folder_name: Folder name for file naming
+            naming_base: Base name for file naming (should include full hierarchy)
             total_pages: Total pages in PDF for validation
             
         Returns:
@@ -97,7 +95,7 @@ class PDFExtractor:
             # Extract each page
             for page_num in pages_to_extract:
                 success, file_path = PDFExtractor.extract_single_page(
-                    pdf_reader, page_num, dest_path, folder_name
+                    pdf_reader, page_num, dest_path, naming_base
                 )
                 
                 if success:
@@ -118,15 +116,15 @@ class PDFExtractor:
     
     @staticmethod
     def extract_single_page(pdf_reader: PyPDF2.PdfReader, page_num: int, 
-                          dest_path: Path, folder_name: str) -> Tuple[bool, str]:
+                          dest_path: Path, naming_base: str) -> Tuple[bool, str]:
         """
-        Extract a single page from PDF
+        Extract a single page from PDF with proper naming convention
         
         Args:
             pdf_reader: PDF reader object
             page_num: Page number to extract (1-indexed)
             dest_path: Destination folder path
-            folder_name: Base folder name for file naming
+            naming_base: Complete naming base including parent folder hierarchy
             
         Returns:
             Tuple of (success, file_path)
@@ -140,9 +138,9 @@ class PDFExtractor:
             pdf_writer = PyPDF2.PdfWriter()
             pdf_writer.add_page(pdf_reader.pages[page_num - 1])  # Convert to 0-indexed
             
-            # Generate file name (sanitize folder name)
-            safe_folder_name = PDFExtractor.sanitize_filename(folder_name)
-            file_name = f"{safe_folder_name}_page_{page_num}.pdf"
+            # Generate file name using the complete naming base
+            safe_naming_base = PDFExtractor.sanitize_filename(naming_base)
+            file_name = f"{safe_naming_base}_page_{page_num}.pdf"
             file_path = dest_path / file_name
             
             # Write PDF file
@@ -262,4 +260,3 @@ class PDFExtractor:
                 formatted_groups.append(f"{group[0]}-{group[-1]}")
         
         return f"Pages to extract: {', '.join(formatted_groups)} (Total: {len(pages)} pages)"
-
