@@ -64,55 +64,49 @@ class FolderManager:
             return []
     
     @staticmethod
-    def create_custom_folder(project_path: Path, base_name: str, parent_folder_id: str, custom_folder_name: str) -> Optional[str]:
+    def create_custom_folder(project_path: Path, base_name: str, parent_folder_path: str, custom_folder_name: str, session_manager=None) -> Optional[str]:
         """
-        Create a custom folder inside any existing folder
+        Create a custom folder inside any existing folder with parent prefix + custom name
         
         Args:
             project_path: Main project path
             base_name: Base project name
-            parent_folder_id: ID of the parent folder
-            custom_folder_name: Name for the new custom folder
+            parent_folder_path: Actual path of the parent folder
+            custom_folder_name: Name for the new custom folder (will be prefixed with parent name)
+            session_manager: SessionManager instance to avoid circular import
             
         Returns:
             Path of created folder or None if failed
         """
         try:
-            from core.session_manager import SessionManager
+            # Import only when needed to avoid circular imports
+            if session_manager is None:
+                from core.session_manager import SessionManager
+                session_manager = SessionManager
             
-            # Sanitize the custom folder name
-            safe_folder_name = FolderManager.sanitize_name(custom_folder_name)
-            folder_metadata = SessionManager.get('folder_metadata', {})
+            parent_path = Path(parent_folder_path)
+            parent_folder_name = parent_path.name
             
-            # Determine parent folder path
-            if parent_folder_id in folder_metadata:
-                # Parent is a tracked folder (chapter, etc.)
-                parent_path = Path(folder_metadata[parent_folder_id]['actual_path'])
-                parent_display = folder_metadata[parent_folder_id]['display_name']
-            else:
-                # Parent is a direct folder (part, default folder)
-                parent_path = project_path / parent_folder_id
-                parent_display = parent_folder_id
-            
-            # Create the custom folder
-            custom_folder_path = parent_path / f"{base_name}_{safe_folder_name}"
+            # FIXED: Create folder with parent prefix + custom name (following project convention)
+            final_folder_name = f"{parent_folder_name}_{custom_folder_name}"
+            custom_folder_path = parent_path / final_folder_name
             custom_folder_path.mkdir(exist_ok=True)
             
             # Generate unique ID for the custom folder
-            import random
-            custom_folder_id = f"custom_{safe_folder_name}_{random.randint(10000, 99999)}"
+            custom_folder_id = f"custom_{random.randint(10000, 99999)}"
             
             # Store metadata
+            folder_metadata = session_manager.get('folder_metadata', {})
             folder_metadata[custom_folder_id] = {
-                'display_name': f"{parent_display} → {safe_folder_name}",
+                'display_name': f"{parent_folder_name} → {custom_folder_name}",
                 'actual_path': str(custom_folder_path.absolute()),
                 'type': 'custom',
-                'parent_id': parent_folder_id,
-                'folder_name': safe_folder_name,
-                'naming_base': f"{base_name}_{safe_folder_name}"
+                'parent_path': parent_folder_path,
+                'folder_name': final_folder_name,  # Full name with prefix
+                'naming_base': final_folder_name   # Use full name for file naming
             }
             
-            SessionManager.set('folder_metadata', folder_metadata)
+            session_manager.set('folder_metadata', folder_metadata)
             return str(custom_folder_path.absolute())
             
         except Exception as e:

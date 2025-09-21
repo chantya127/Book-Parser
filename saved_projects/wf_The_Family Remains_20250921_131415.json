@@ -1,0 +1,42 @@
+{
+  "project_config": {
+    "code": "wf",
+    "book_name": "The_Family Remains",
+    "num_parts": 3
+  },
+  "pdf_uploaded": true,
+  "pdf_file_name": "Wf_4409_The Family Remains.pdf",
+  "total_pages": 17,
+  "folder_structure_created": true,
+  "created_folders": [
+    "/Users/pranav/Desktop/untitled folder/pdf-page-splitter/wf_The_Family Remains/wf_The_Family Remains_prologue",
+    "/Users/pranav/Desktop/untitled folder/pdf-page-splitter/wf_The_Family Remains/wf_The_Family Remains_index",
+    "/Users/pranav/Desktop/untitled folder/pdf-page-splitter/wf_The_Family Remains/wf_The_Family Remains_epilogue",
+    "/Users/pranav/Desktop/untitled folder/pdf-page-splitter/wf_The_Family Remains/wf_The_Family Remains_Part_1",
+    "/Users/pranav/Desktop/untitled folder/pdf-page-splitter/wf_The_Family Remains/wf_The_Family Remains_Part_2",
+    "/Users/pranav/Desktop/untitled folder/pdf-page-splitter/wf_The_Family Remains/wf_The_Family Remains_Part_3"
+  ],
+  "chapters_config": {},
+  "chapters_created": false,
+  "folder_metadata": {},
+  "numbering_systems": {},
+  "extraction_history": [
+    {
+      "destination": "wf_The_Family Remains_prologue",
+      "destination_path": "/Users/pranav/Desktop/untitled folder/pdf-page-splitter/wf_The_Family Remains/wf_The_Family Remains_prologue",
+      "pages_extracted": 4,
+      "page_ranges": [
+        "3-6"
+      ],
+      "files_created": [
+        "/Users/pranav/Desktop/untitled folder/pdf-page-splitter/wf_The_Family Remains/wf_The_Family Remains_prologue/wf_The_Family_Remains_prologue_Page_1.pdf",
+        "/Users/pranav/Desktop/untitled folder/pdf-page-splitter/wf_The_Family Remains/wf_The_Family Remains_prologue/wf_The_Family_Remains_prologue_Page_2.pdf",
+        "/Users/pranav/Desktop/untitled folder/pdf-page-splitter/wf_The_Family Remains/wf_The_Family Remains_prologue/wf_The_Family_Remains_prologue_Page_3.pdf",
+        "/Users/pranav/Desktop/untitled folder/pdf-page-splitter/wf_The_Family Remains/wf_The_Family Remains_prologue/wf_The_Family_Remains_prologue_Page_4.pdf"
+      ],
+      "naming_base": "wf_The_Family Remains_prologue"
+    }
+  ],
+  "saved_timestamp": "20250921_131415",
+  "saved_datetime": "2025-09-21T13:14:15.313812"
+}

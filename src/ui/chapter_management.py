@@ -3,6 +3,7 @@ from typing import Dict, List
 from core.session_manager import SessionManager
 from core.folder_manager import ChapterManager, FolderManager
 from pathlib import Path
+import shutil
 
 def render_chapter_management_page():
     """Render the chapter management page"""
@@ -13,23 +14,313 @@ def render_chapter_management_page():
         return
     
     config = SessionManager.get('project_config', {})
-    num_parts = config.get('num_parts', 0)
-    
-    if num_parts == 0:
-        st.info("📝 No parts configured. Chapters are only needed when you have parts defined.")
-        return
     
     st.subheader("📂 Chapter Management")
     st.markdown("Configure chapters within each part of your book.")
     
-    # Chapter configuration for each part
+    # Check for operation completion messages
+    if st.session_state.get('part_operation_completed'):
+        operation_info = st.session_state.get('part_operation_info', {})
+        if operation_info.get('operation') == 'add':
+            st.success(f"✅ Successfully created Part {operation_info.get('part_number')}!")
+            st.info(f"📂 Location: {operation_info.get('location', 'Unknown')}")
+        elif operation_info.get('operation') == 'delete':
+            st.success(f"✅ Successfully deleted Part {operation_info.get('part_number')} and all its contents!")
+        
+        # Clear the flags
+        st.session_state['part_operation_completed'] = False
+        st.session_state['part_operation_info'] = {}
+    
+    # Add option to create individual parts
+    st.markdown("### 🔧 Additional Options")
+    col_opt1, col_opt2, col_opt3, col_opt4 = st.columns(4)
+    
+    # Get actual parts that exist (including individually created ones)
+    actual_parts = get_existing_parts(config)
+    max_part_num = max(actual_parts) if actual_parts else 0
+    
+    with col_opt1:
+        if st.button("➕ Add Individual Part", type="secondary"):
+            individual_part_num = st.session_state.get('individual_part_input', max_part_num + 1)
+            add_individual_part(config, individual_part_num)
+            st.rerun()  # Force refresh after adding part
+    
+    with col_opt2:
+        individual_part_num = st.number_input(
+            "Part Number to Add",
+            min_value=1,
+            value=max_part_num + 1,
+            step=1,
+            key="individual_part_input",
+            help="Specify which part number to create individually"
+        )
+    
+    with col_opt3:
+        # Delete part option - refresh the list each time
+        current_parts = get_existing_parts(config)  # Get fresh list
+        if current_parts:
+            part_to_delete = st.selectbox(
+                "Select Part to Delete",
+                current_parts,
+                key="part_to_delete_select",
+                help="Choose which part to delete (this will delete all contents)"
+            )
+            
+    with col_opt4:
+        if current_parts:
+            if st.button("🗑️ Delete Selected Part", type="secondary", key="delete_part_btn"):
+                part_to_delete = st.session_state.get("part_to_delete_select")
+                if part_to_delete:
+                    delete_individual_part(config, part_to_delete)
+                    st.rerun()
+    
+    # Refresh parts list after any operations for display
+    updated_parts = get_existing_parts(config)
+    
+    if not updated_parts:
+        st.info("📝 No parts configured. You can add individual parts above or configure parts in Project Setup.")
+        return
+    
+    st.markdown("---")
+    st.info(f"Found {len(updated_parts)} existing parts: {', '.join(map(str, sorted(updated_parts)))}")
+    
+    # Chapter configuration for each part - use updated parts list
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        render_chapter_configuration(config, num_parts)
+        render_chapter_configuration(config, updated_parts)
     
     with col2:
         render_chapter_preview(config)
+
+def delete_individual_part(config: Dict, part_number: int):
+    """Delete an individual part folder and all its contents"""
+    try:
+        safe_code = FolderManager.sanitize_name(config['code'])
+        book_name = config['book_name']
+        base_name = f"{safe_code}_{book_name}"
+        
+        # Use consistent path resolution
+        current_dir = Path.cwd()
+        
+        possible_paths = [
+            Path(base_name),
+            current_dir / base_name,
+            Path.cwd() / base_name
+        ]
+        
+        project_path = None
+        for path in possible_paths:
+            if path.exists():
+                project_path = path
+                break
+        
+        if not project_path:
+            st.error(f"Project folder not found. Cannot delete Part {part_number}.")
+            return
+        
+        # Find the part folder
+        part_folder = project_path / f"{base_name}_Part_{part_number}"
+        
+        if not part_folder.exists():
+            st.error(f"Part {part_number} folder not found.")
+            return
+        
+        # Delete the folder and all contents
+        shutil.rmtree(part_folder)
+        
+        # Update session state - remove from created folders
+        current_folders = SessionManager.get('created_folders', [])
+        part_path_str = str(part_folder.absolute())
+        if part_path_str in current_folders:
+            current_folders.remove(part_path_str)
+        
+        # Remove any chapter folders that were in this part
+        folders_to_remove = []
+        for folder_path in current_folders:
+            if f"Part_{part_number}" in folder_path and part_folder.name in folder_path:
+                folders_to_remove.append(folder_path)
+        
+        for folder_path in folders_to_remove:
+            current_folders.remove(folder_path)
+        
+        SessionManager.set('created_folders', current_folders)
+        
+        # Remove chapter metadata for this part
+        folder_metadata = SessionManager.get('folder_metadata', {})
+        metadata_to_remove = []
+        for folder_id, metadata in folder_metadata.items():
+            if metadata.get('type') == 'chapter' and metadata.get('parent_part') == part_number:
+                metadata_to_remove.append(folder_id)
+            elif metadata.get('type') == 'custom' and f"Part_{part_number}" in metadata.get('actual_path', ''):
+                metadata_to_remove.append(folder_id)
+        
+        for folder_id in metadata_to_remove:
+            del folder_metadata[folder_id]
+        
+        SessionManager.set('folder_metadata', folder_metadata)
+        
+        # Remove chapters config for this part
+        chapters_config = SessionManager.get('chapters_config', {})
+        part_key = f"Part_{part_number}"
+        if part_key in chapters_config:
+            del chapters_config[part_key]
+            SessionManager.set('chapters_config', chapters_config)
+        
+        # Update num_parts if this was the highest numbered part
+        current_num_parts = config.get('num_parts', 0)
+        if part_number == current_num_parts:
+            # Find the new highest part number
+            existing_parts = get_existing_parts(config)
+            new_max_parts = max(existing_parts) if existing_parts else 0
+            SessionManager.update_config({'num_parts': new_max_parts})
+        
+        # Set success message for next render
+        st.session_state['part_operation_completed'] = True
+        st.session_state['part_operation_info'] = {
+            'operation': 'delete',
+            'part_number': part_number
+        }
+        
+    except PermissionError:
+        st.error(f"❌ Permission denied. Cannot delete Part {part_number}. Please check folder permissions.")
+    except Exception as e:
+        st.error(f"❌ Error deleting Part {part_number}: {str(e)}")
+
+def get_existing_parts(config: Dict) -> List[int]:
+    """Get list of actually existing part numbers by checking filesystem first, then session state"""
+    existing_parts = set()
+    
+    safe_code = FolderManager.sanitize_name(config.get('code', ''))
+    book_name = config.get('book_name', '')
+    base_name = f"{safe_code}_{book_name}"
+    
+    # First, check filesystem directly to get the truth
+    try:
+        current_dir = Path.cwd()
+        possible_paths = [
+            Path(base_name),
+            current_dir / base_name,
+            Path.cwd() / base_name
+        ]
+        
+        for project_path in possible_paths:
+            if project_path.exists() and project_path.is_dir():
+                for item in project_path.iterdir():
+                    if item.is_dir() and f"{base_name}_Part_" in item.name:
+                        try:
+                            part_num_str = item.name.split(f"{base_name}_Part_")[-1]
+                            part_num = int(part_num_str)
+                            existing_parts.add(part_num)
+                        except (ValueError, IndexError):
+                            continue
+                break
+    except Exception:
+        pass
+    
+    # If no parts found in filesystem, fall back to session state and config
+    if not existing_parts:
+        # Check created folders for individual parts
+        created_folders = SessionManager.get('created_folders', [])
+        
+        for folder_path in created_folders:
+            # Skip if folder doesn't exist on filesystem
+            if not Path(folder_path).exists():
+                continue
+                
+            folder_name = Path(folder_path).name
+            # Look for pattern: base_name_Part_X
+            if f"{base_name}_Part_" in folder_name:
+                try:
+                    part_num_str = folder_name.split(f"{base_name}_Part_")[-1]
+                    part_num = int(part_num_str)
+                    existing_parts.add(part_num)
+                except (ValueError, IndexError):
+                    continue
+        
+        # Only add from config if parts actually exist on filesystem
+        config_parts = config.get('num_parts', 0)
+        if config_parts > 0:
+            for i in range(1, config_parts + 1):
+                part_folder = None
+                try:
+                    current_dir = Path.cwd()
+                    possible_paths = [
+                        Path(base_name),
+                        current_dir / base_name,
+                        Path.cwd() / base_name
+                    ]
+                    
+                    for project_path in possible_paths:
+                        if project_path.exists():
+                            part_folder = project_path / f"{base_name}_Part_{i}"
+                            break
+                    
+                    if part_folder and part_folder.exists():
+                        existing_parts.add(i)
+                except:
+                    continue
+    
+    return sorted(list(existing_parts))
+
+def add_individual_part(config: Dict, part_number: int):
+    """Add an individual part folder"""
+    try:
+        safe_code = FolderManager.sanitize_name(config['code'])
+        book_name = config['book_name']
+        base_name = f"{safe_code}_{book_name}"
+        
+        # Use consistent path resolution
+        current_dir = Path.cwd()
+        
+        possible_paths = [
+            Path(base_name),
+            current_dir / base_name,
+            Path.cwd() / base_name
+        ]
+        
+        project_path = None
+        for path in possible_paths:
+            if path.exists():
+                project_path = path
+                break
+        
+        if not project_path:
+            project_path = current_dir / base_name
+            project_path.mkdir(parents=True, exist_ok=True)
+        
+        # Create individual part folder
+        part_folder = project_path / f"{base_name}_Part_{part_number}"
+        
+        # Check if part already exists
+        if part_folder.exists():
+            st.error(f"❌ Part {part_number} already exists!")
+            return
+        
+        part_folder.mkdir(exist_ok=True)
+        
+        # Update session state
+        current_folders = SessionManager.get('created_folders', [])
+        new_part_path = str(part_folder.absolute())
+        if new_part_path not in current_folders:
+            current_folders.append(new_part_path)
+            SessionManager.set('created_folders', current_folders)
+        
+        # Update num_parts if this part number is higher
+        current_num_parts = config.get('num_parts', 0)
+        if part_number > current_num_parts:
+            SessionManager.update_config({'num_parts': part_number})
+        
+        # Set success message for next render
+        st.session_state['part_operation_completed'] = True
+        st.session_state['part_operation_info'] = {
+            'operation': 'add',
+            'part_number': part_number,
+            'location': str(part_folder.absolute())
+        }
+        
+    except Exception as e:
+        st.error(f"❌ Error creating individual part: {str(e)}")
 
 def render_prerequisites_warning():
     """Render warning when prerequisites are not met"""
@@ -41,20 +332,19 @@ def render_prerequisites_warning():
     3. Create folder structure
     """)
 
-def render_chapter_configuration(config: Dict, num_parts: int):
+def render_chapter_configuration(config: Dict, existing_parts: List[int]):
     """Render chapter configuration interface"""
     
     chapters_config = SessionManager.get('chapters_config', {})
     
-    for part_num in range(1, num_parts + 1):
-        with st.expander(f"📖 Part {part_num} Chapters", expanded=part_num == 1):
+    for part_num in existing_parts:
+        with st.expander(f"📖 Part {part_num} Chapters", expanded=part_num == existing_parts[0] if existing_parts else False):
             render_part_chapters(part_num, chapters_config, config)
     
     # Create chapters button
     if any(chapters_config.values()):  # Only show if chapters are configured
         if st.button("🏗️ Create All Chapters", type="primary"):
             create_all_chapters(config, chapters_config)
-
 
 def get_chapter_number_format(part_num: int, chapter_index: int) -> str:
     """Get formatted chapter number based on numbering system"""
@@ -70,10 +360,9 @@ def get_chapter_number_format(part_num: int, chapter_index: int) -> str:
                        "Eighteen", "Nineteen", "Twenty", "Twenty-One", "Twenty-Two", "Twenty-Three",
                        "Twenty-Four", "Twenty-Five", "Twenty-Six", "Twenty-Seven", "Twenty-Eight",
                        "Twenty-Nine", "Thirty", "Thirty-One", "Thirty-Two", "Thirty-Three", "Thirty-Four",
-                       "Thirty-Five", "Thirty-Six", "Thirty-Seven", "Thirty-Eight", "Thirty-Nine", "Fourty",
-                       "Fourty-One", "Fourty-Two", "Fourty-Three", "Fourty-Four", "Fourty-Five", "Fourty-Six",
-                       "Fourty-Seven", "Fourty-Eight", "Fourty-Nine", "Fifty", "Fifty-One", "Fifty-Two", "Fifty-Three",]
-        # FIXED: Removed limit - if beyond predefined words, use numbers
+                       "Thirty-Five", "Thirty-Six", "Thirty-Seven", "Thirty-Eight", "Thirty-Nine", "Forty",
+                       "Forty-One", "Forty-Two", "Forty-Three", "Forty-Four", "Forty-Five", "Forty-Six",
+                       "Forty-Seven", "Forty-Eight", "Forty-Nine", "Fifty"]
         return word_numbers[chapter_num - 1] if chapter_num <= len(word_numbers) else str(chapter_num)
     
     elif numbering_system == "Roman (I, II, III...)":
@@ -81,16 +370,14 @@ def get_chapter_number_format(part_num: int, chapter_index: int) -> str:
                          "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX",
                          "XXI", "XXII", "XXIII", "XXIV", "XXV", "XXVI", "XXVII", "XXVIII", "XXIX", "XXX",
                          "XXXI", "XXXII", "XXXIII", "XXXIV", "XXXV", "XXXVI", "XXXVII", "XXXVIII", "XXXIX", "XL",
-                         "XLI", "XLII", "XLIII", "XLIV", "XLV", "XLVI", "XLVII", "XLVIII", "XLIX", "L",]
-        # FIXED: Removed limit - if beyond predefined romans, use numbers
+                         "XLI", "XLII", "XLIII", "XLIV", "XLV", "XLVI", "XLVII", "XLVIII", "XLIX", "L"]
         return roman_numerals[chapter_num - 1] if chapter_num <= len(roman_numerals) else str(chapter_num)
     
     elif numbering_system == "Null (null_1, null_2...)":
-        return f"null_{chapter_num}"  # Format: null_1, null_2, etc.
+        return f"null_{chapter_num}"
     
-    else:  # Default to numbers - NO LIMIT
+    else:  # Default to numbers
         return str(chapter_num)
-
 
 def render_part_chapters(part_num: int, chapters_config: Dict, config: Dict):
     """Render chapter configuration for a specific part"""
@@ -98,7 +385,7 @@ def render_part_chapters(part_num: int, chapters_config: Dict, config: Dict):
     part_key = f"Part_{part_num}"
     part_chapters = chapters_config.get(part_key, [])
     
-    # Number of chapters input - FIXED: Removed upper limit
+    # Number of chapters input
     current_count = len(part_chapters)
     num_chapters = st.number_input(
         f"Number of chapters in Part {part_num}",
@@ -111,7 +398,6 @@ def render_part_chapters(part_num: int, chapters_config: Dict, config: Dict):
     
     # Chapter numbering system selection
     if num_chapters > 0:
-        # Get current numbering system
         numbering_config = SessionManager.get('numbering_systems', {})
         current_system = numbering_config.get(part_key, "Numbers (1, 2, 3...)")
         
@@ -119,7 +405,7 @@ def render_part_chapters(part_num: int, chapters_config: Dict, config: Dict):
             "Numbers (1, 2, 3...)", 
             "Words (One, Two, Three...)", 
             "Roman (I, II, III...)",
-            "Null (null_1, null_2...)"  # Null option
+            "Null (null_1, null_2...)"
         ]
         
         numbering_system = st.selectbox(
@@ -132,11 +418,10 @@ def render_part_chapters(part_num: int, chapters_config: Dict, config: Dict):
         
         # Check if numbering system changed
         if current_system != numbering_system:
-            # Update numbering system and regenerate numbers
             numbering_config[part_key] = numbering_system
             SessionManager.set('numbering_systems', numbering_config)
             update_chapter_numbering_system(part_num)
-            st.rerun()  # Refresh to show updated numbers
+            st.rerun()
         
         # Store numbering system in config
         numbering_config[part_key] = numbering_system
@@ -162,39 +447,9 @@ def render_part_chapters(part_num: int, chapters_config: Dict, config: Dict):
                 if st.button(f"🔄 Update Part {part_num} Chapters", key=f"update_part_{part_num}"):
                     update_existing_chapters_for_part(config, part_num, part_chapters)
 
-
-def get_chapter_number_format(part_num: int, chapter_index: int) -> str:
-    """Get formatted chapter number based on numbering system"""
-    numbering_config = SessionManager.get('numbering_systems', {})
-    part_key = f"Part_{part_num}"
-    numbering_system = numbering_config.get(part_key, "Numbers (1, 2, 3...)")
-    
-    chapter_num = chapter_index + 1  # Convert 0-based index to 1-based
-    
-    if numbering_system == "Words (One, Two, Three...)":
-        word_numbers = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
-                       "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", 
-                       "Eighteen", "Nineteen", "Twenty"]
-        return word_numbers[chapter_num - 1] if chapter_num <= len(word_numbers) else str(chapter_num)
-    
-    elif numbering_system == "Roman (I, II, III...)":
-        roman_numerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
-                         "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"]
-        return roman_numerals[chapter_num - 1] if chapter_num <= len(roman_numerals) else str(chapter_num)
-    
-    elif numbering_system == "Null (null_1, null_2...)":
-        return f"null_{chapter_num}"  # Format: null_1, null_2, etc.
-    
-    else:  # Default to numbers
-        return str(chapter_num)
-
 def update_chapters_count(part_key: str, num_chapters: int, current_chapters: List, part_num: int):
     """Update the number of chapters for a part with auto-numbering"""
     chapters_config = SessionManager.get('chapters_config', {})
-    
-    # Get current numbering system for this part
-    numbering_config = SessionManager.get('numbering_systems', {})
-    current_numbering_system = numbering_config.get(part_key, "Numbers (1, 2, 3...)")
     
     if num_chapters > len(current_chapters):
         # Add new chapters with auto-generated numbers
@@ -234,7 +489,6 @@ def render_chapter_details(part_num: int, chapters: List[Dict], config: Dict):
     
     updated_chapters = []
     safe_code = FolderManager.sanitize_name(config['code'])
-    # Book name kept as is (no sanitization)
     book_name = config['book_name']
     base_name = f"{safe_code}_{book_name}"
     
@@ -242,7 +496,6 @@ def render_chapter_details(part_num: int, chapters: List[Dict], config: Dict):
         col1, col2 = st.columns(2)
         
         with col1:
-            # Auto-populate with formatted number but allow editing
             auto_number = get_chapter_number_format(part_num, i)
             chapter_number = st.text_input(
                 "Number",
@@ -274,7 +527,7 @@ def render_chapter_details(part_num: int, chapters: List[Dict], config: Dict):
         )
         st.caption(f"📁 Folder: `{preview_name}`")
         
-        if i < len(chapters) - 1:  # Don't show separator after last chapter
+        if i < len(chapters) - 1:
             st.markdown("---")
     
     # Check for chapter name/number changes and handle file renaming
@@ -290,7 +543,7 @@ def handle_chapter_renaming(part_num: int, old_chapters: List[Dict], new_chapter
     """Handle renaming of chapter files when chapter details change"""
     folder_metadata = SessionManager.get('folder_metadata', {})
     safe_code = FolderManager.sanitize_name(config['code'])
-    book_name = config['book_name']  # Book name kept as is
+    book_name = config['book_name']
     base_name = f"{safe_code}_{book_name}"
     part_folder_name = f"{base_name}_Part_{part_num}"
     
@@ -341,7 +594,7 @@ def render_chapter_preview(config: Dict):
         return
     
     safe_code = FolderManager.sanitize_name(config['code'])
-    book_name = config['book_name']  # Book name kept as is
+    book_name = config['book_name']
     base_name = f"{safe_code}_{book_name}"
     
     for part_key, chapters in chapters_config.items():
@@ -367,18 +620,16 @@ def create_chapters_for_part(config: Dict, part_num: int, chapters: List[Dict]):
     try:
         with st.spinner(f"Creating chapters for Part {part_num}..."):
             safe_code = FolderManager.sanitize_name(config['code'])
-            book_name = config['book_name']  # Book name kept as is
+            book_name = config['book_name']
             base_name = f"{safe_code}_{book_name}"
             
-            # FIXED: Check if project folder exists with current working directory
-            import os
+            # Use consistent path resolution
             current_dir = Path.cwd()
             
-            # Try multiple possible project paths
             possible_paths = [
-                Path(base_name),  # Current approach
-                current_dir / base_name,  # Relative to current directory
-                Path.cwd() / base_name  # Explicit current working directory
+                Path(base_name),
+                current_dir / base_name,
+                Path.cwd() / base_name
             ]
             
             project_path = None
@@ -387,7 +638,6 @@ def create_chapters_for_part(config: Dict, part_num: int, chapters: List[Dict]):
                     project_path = path
                     break
             
-            # If no existing path found, create in current directory
             if not project_path:
                 project_path = current_dir / base_name
                 project_path.mkdir(parents=True, exist_ok=True)
@@ -419,7 +669,6 @@ def create_chapters_for_part(config: Dict, part_num: int, chapters: List[Dict]):
     
     except Exception as e:
         st.error(f"Error creating chapters for Part {part_num}: {str(e)}")
-        # Show debug information
         st.error(f"Debug info: Tried to find project at {base_name}")
         st.error(f"Current working directory: {Path.cwd()}")
 
@@ -433,11 +682,10 @@ def create_all_chapters(config: Dict, chapters_config: Dict):
     try:
         with st.spinner("Creating chapter folders..."):
             safe_code = FolderManager.sanitize_name(config['code'])
-            book_name = config['book_name']  # Book name kept as is
+            book_name = config['book_name']
             base_name = f"{safe_code}_{book_name}"
             
-            # FIXED: Same path resolution logic
-            import os
+            # Use consistent path resolution
             current_dir = Path.cwd()
             
             possible_paths = [
@@ -499,7 +747,6 @@ def update_existing_chapters_for_part(config: Dict, part_num: int, chapters: Lis
     """Update existing chapters for a specific part"""
     try:
         with st.spinner(f"Updating chapters for Part {part_num}..."):
-            # This will handle renaming through the existing logic
             st.success(f"✅ Updated chapters for Part {part_num}!")
             st.info("Chapter updates are handled automatically when you modify names/numbers.")
     except Exception as e:

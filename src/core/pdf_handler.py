@@ -11,7 +11,7 @@ class PDFHandler:
     @staticmethod
     def load_pdf_info(uploaded_file) -> Tuple[Optional[PyPDF2.PdfReader], int]:
         """
-        Load PDF and extract basic information
+        Load PDF and extract basic information with memory optimization
         
         Args:
             uploaded_file: Streamlit uploaded file object
@@ -20,13 +20,21 @@ class PDFHandler:
             Tuple of (PDF reader object, total pages)
         """
         try:
-            # Read file content once and store
+            # For large files, avoid storing full content in session
+            # Instead, store file info and reload when needed
             file_content = uploaded_file.read()
             pdf_reader = PyPDF2.PdfReader(BytesIO(file_content))
             total_pages = len(pdf_reader.pages)
             
-            # Store content in session for reuse
-            st.session_state.pdf_content = file_content
+            # Store file info instead of full content for large files
+            file_size_mb = len(file_content) / (1024 * 1024)
+            if file_size_mb > 100:  # Only store content for files smaller than 100MB
+                st.session_state.pdf_file_name = uploaded_file.name
+                st.session_state.pdf_large_file = True
+                st.info(f"Large PDF detected ({file_size_mb:.1f}MB). Using optimized memory handling.")
+            else:
+                st.session_state.pdf_content = file_content
+                st.session_state.pdf_large_file = False
             
             return pdf_reader, total_pages
         except Exception as e:
@@ -35,11 +43,18 @@ class PDFHandler:
     
     @staticmethod
     def get_pdf_reader() -> Optional[PyPDF2.PdfReader]:
-        """Get PDF reader from stored content"""
+        """Get PDF reader from stored content or reload from file"""
         try:
+            # Check if we have content stored (for smaller files)
             pdf_content = st.session_state.get('pdf_content')
             if pdf_content:
                 return PyPDF2.PdfReader(BytesIO(pdf_content))
+            
+            # For large files, get from the uploaded file directly
+            pdf_file = st.session_state.get('pdf_file')
+            if pdf_file:
+                return PyPDF2.PdfReader(BytesIO(pdf_file.read()))
+            
             return None
         except Exception as e:
             st.error(f"Error accessing PDF: {str(e)}")
@@ -49,7 +64,9 @@ class PDFHandler:
     def validate_pdf(uploaded_file) -> bool:
         """Validate if uploaded file is a proper PDF"""
         try:
+            uploaded_file.seek(0)  # Reset file pointer
             pdf_reader = PyPDF2.PdfReader(BytesIO(uploaded_file.read()))
+            uploaded_file.seek(0)  # Reset for future reads
             return len(pdf_reader.pages) > 0
         except:
             return False
