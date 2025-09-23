@@ -6,6 +6,7 @@ from ui.progress_tracker import render_progress_tracker
 from ui.chapter_management import render_chapter_management_page
 from ui.page_assignment import render_page_assignment_page
 from ui.custom_folder_management import render_custom_folder_management_page
+from ui.font_selector import render_font_case_selector  # NEW IMPORT
 from core.session_manager import SessionManager
 
 def setup_page_config():
@@ -58,7 +59,14 @@ def setup_page_config():
 def render_main_app():
     """Render the main application layout"""
     st.title("📚 PDF Page Organizer")
+
+    # Check if folder browser should be shown
+    from ui.folder_selector import render_folder_browser_in_main
     
+    if render_folder_browser_in_main():
+        return  # Show only folder browser when active
+    
+    # Remove the font case check - go directly to tabs
     # Navigation tabs - Added Custom Folders tab
     tab1, tab2, tab3, tab4 = st.tabs([
         "📋 Project Setup", 

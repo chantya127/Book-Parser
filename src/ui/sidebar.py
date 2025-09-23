@@ -1,4 +1,4 @@
-# src/ui/sidebar.py
+# src/ui/sidebar.py - Modified to use lazy imports
 import streamlit as st
 import json
 import os
@@ -7,6 +7,7 @@ from datetime import datetime
 from core.session_manager import SessionManager
 from core.pdf_handler import PDFHandler
 from core.folder_manager import FolderManager
+from ui.font_selector import render_font_case_changer
 
 def render_sidebar():
     """Render sidebar with project configuration"""
@@ -19,7 +20,73 @@ def render_sidebar():
         
         render_pdf_upload_section()
         render_project_details_section()
-        render_parts_configuration_section()
+        render_custom_parts_configuration_section()
+        
+        # NEW: Add font case changer
+        render_font_case_changer()
+
+        from ui.folder_selector import render_destination_folder_selector
+
+        render_destination_folder_selector()
+
+def get_projects_dir():
+    """Get or create projects directory"""
+    projects_dir = Path("saved_projects")
+    projects_dir.mkdir(exist_ok=True)
+    return projects_dir
+
+def get_existing_projects():
+    """Get list of existing project files with formatted display"""
+    projects_dir = get_projects_dir()
+    project_files = list(projects_dir.glob("*.json"))
+    
+    project_list = []
+    for f in project_files:
+        try:
+            # Parse the filename to extract info
+            parts = f.stem.split('_')
+            
+            # Find the timestamp part (starts with 4-digit year)
+            timestamp_start = None
+            for i, part in enumerate(parts):
+                if len(part) >= 4 and part[:4].isdigit():
+                    timestamp_start = i
+                    break
+            
+            if timestamp_start:
+                # Extract project info and timestamp
+                project_info = '_'.join(parts[:timestamp_start])
+                timestamp_str = '_'.join(parts[timestamp_start:])
+                
+                # Parse timestamp for display
+                try:
+                    timestamp = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
+                    display_name = f"{project_info} ({timestamp.strftime('%Y-%m-%d %H:%M:%S')})"
+                except ValueError:
+                    # Fallback if timestamp parsing fails
+                    display_name = f.stem
+            else:
+                # Old format or no timestamp
+                display_name = f.stem
+            
+            project_list.append({
+                'filename': f.stem,
+                'display_name': display_name,
+                'modified': f.stat().st_mtime
+            })
+            
+        except Exception:
+            # Fallback for any parsing issues
+            project_list.append({
+                'filename': f.stem,
+                'display_name': f.stem,
+                'modified': f.stat().st_mtime
+            })
+    
+    # Sort by modification time (newest first)
+    project_list.sort(key=lambda x: x['modified'], reverse=True)
+    
+    return project_list
 
 def render_project_management_section():
     """Render project management controls"""
@@ -83,65 +150,6 @@ def render_project_management_section():
     
     st.markdown("---")
 
-def get_projects_dir():
-    """Get or create projects directory"""
-    projects_dir = Path("saved_projects")
-    projects_dir.mkdir(exist_ok=True)
-    return projects_dir
-
-def get_existing_projects():
-    """Get list of existing project files with formatted display"""
-    projects_dir = get_projects_dir()
-    project_files = list(projects_dir.glob("*.json"))
-    
-    project_list = []
-    for f in project_files:
-        try:
-            # Parse the filename to extract info
-            parts = f.stem.split('_')
-            
-            # Find the timestamp part (starts with 4-digit year)
-            timestamp_start = None
-            for i, part in enumerate(parts):
-                if len(part) >= 4 and part[:4].isdigit():
-                    timestamp_start = i
-                    break
-            
-            if timestamp_start:
-                # Extract project info and timestamp
-                project_info = '_'.join(parts[:timestamp_start])
-                timestamp_str = '_'.join(parts[timestamp_start:])
-                
-                # Parse timestamp for display
-                try:
-                    timestamp = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
-                    display_name = f"{project_info} ({timestamp.strftime('%Y-%m-%d %H:%M:%S')})"
-                except ValueError:
-                    # Fallback if timestamp parsing fails
-                    display_name = f.stem
-            else:
-                # Old format or no timestamp
-                display_name = f.stem
-            
-            project_list.append({
-                'filename': f.stem,
-                'display_name': display_name,
-                'modified': f.stat().st_mtime
-            })
-            
-        except Exception:
-            # Fallback for any parsing issues
-            project_list.append({
-                'filename': f.stem,
-                'display_name': f.stem,
-                'modified': f.stat().st_mtime
-            })
-    
-    # Sort by modification time (newest first)
-    project_list.sort(key=lambda x: x['modified'], reverse=True)
-    
-    return project_list
-
 def create_new_project():
     """Create a new project by clearing current session"""
     # Clear all session state except essential UI state
@@ -191,6 +199,7 @@ def format_project_display_name(project_name):
     except Exception:
         return project_name
 
+
 def save_current_project():
     """Save current project to file with timestamp"""
     config = SessionManager.get('project_config', {})
@@ -208,7 +217,7 @@ def save_current_project():
     project_file = projects_dir / f"{project_name}.json"
     
     try:
-        # Collect all project data
+        # Collect all project data including destinations
         project_data = {
             'project_config': SessionManager.get('project_config', {}),
             'pdf_uploaded': SessionManager.get('pdf_uploaded', False),
@@ -220,7 +229,15 @@ def save_current_project():
             'chapters_created': SessionManager.get('chapters_created', False),
             'folder_metadata': SessionManager.get('folder_metadata', {}),
             'numbering_systems': SessionManager.get('numbering_systems', {}),
+            'chapter_suffixes': SessionManager.get('chapter_suffixes', {}),
             'extraction_history': SessionManager.get('extraction_history', []),
+            'custom_parts': SessionManager.get('custom_parts', {}),
+            'font_case_selected': SessionManager.get('font_case_selected', False),
+            'selected_font_case': SessionManager.get('selected_font_case', 'First Capital (Sentence case)'),
+            'default_destination_folder': SessionManager.get('default_destination_folder', ''),
+            'destination_folder_selected': SessionManager.get('destination_folder_selected', False),
+            'project_destination_folder': SessionManager.get('project_destination_folder', ''),  # NEW
+            'project_destination_selected': SessionManager.get('project_destination_selected', False),  # NEW
             'saved_timestamp': timestamp,
             'saved_datetime': datetime.now().isoformat()
         }
@@ -324,9 +341,19 @@ def render_pdf_upload_section():
         display_pdf_success()
 
 def handle_pdf_upload(uploaded_file):
-    """Handle PDF file upload and processing"""
-    with st.spinner("Loading PDF..."):
+    """Handle PDF file upload and processing with improved large file handling"""
+    file_size_mb = len(uploaded_file.getvalue()) / (1024 * 1024)
+    
+    with st.spinner(f"Loading PDF ({file_size_mb:.1f}MB)... This may take a moment for large files."):
+        # Show progress for large files
+        if file_size_mb > 100:
+            progress_bar = st.progress(0)
+            progress_bar.progress(25, "Reading PDF content...")
+            
         pdf_reader, total_pages = PDFHandler.load_pdf_info(uploaded_file)
+        
+        if file_size_mb > 100:
+            progress_bar.progress(75, "Processing PDF structure...")
         
         if pdf_reader and total_pages > 0:
             SessionManager.set('pdf_file', uploaded_file)
@@ -337,8 +364,21 @@ def handle_pdf_upload(uploaded_file):
             if SessionManager.get('expected_pdf_name'):
                 SessionManager.set('expected_pdf_name', None)
             
+            if file_size_mb > 100:
+                progress_bar.progress(100, "PDF loaded successfully!")
+                progress_bar.empty()
+            
             st.success(f"PDF loaded successfully! Total pages: {total_pages}")
+            
+            # Show memory usage warning for very large files
+            if file_size_mb > 200:
+                st.warning(f"⚠️ Large file ({file_size_mb:.1f}MB) loaded. Page extraction may take longer than usual.")
+            
             st.rerun()
+        else:
+            if file_size_mb > 100:
+                progress_bar.empty()
+            st.error("Failed to load PDF. Please check if the file is valid and not corrupted.")
 
 def display_pdf_success():
     """Display success message for uploaded PDF"""
@@ -349,51 +389,164 @@ def display_pdf_success():
         st.success(f"✅ PDF loaded: {pdf_file.name}")
         st.info(f"Total pages: {total_pages}")
 
+
 def render_project_details_section():
-    """Render project details input section"""
+    """Render project details input section with font formatting"""
     if not SessionManager.get('pdf_uploaded') and not SessionManager.get('expected_pdf_name'):
         return
     
     st.subheader("Step 2: Project Details")
     
     config = SessionManager.get('project_config', {})
+    font_case = SessionManager.get_font_case()
+    
+    # Show current font formatting
+    st.caption(f"Font formatting: {font_case}")
     
     code = st.text_input(
         "Project Code",
-        value=config.get('code', ''),
+        value=config.get('original_code', config.get('code', '')),
         placeholder="e.g., CS101",
-        help="Short code identifier for the project"
+        help=f"Short code identifier (will be formatted as: {font_case})"
     )
     
     book_name = st.text_input(
         "Book Name",
-        value=config.get('book_name', ''),
+        value=config.get('original_book_name', config.get('book_name', '')),
         placeholder="e.g., Data Structures and Algorithms",
-        help="Book name (will be kept as-is in folder names)"
+        help=f"Book name (will be formatted as: {font_case}, no underscores added)"
     )
     
     if code and book_name:
-        SessionManager.update_config({'code': code, 'book_name': book_name})
+        # Apply font formatting properly
+        from core.text_formatter import TextFormatter
+        
+        formatted_code = TextFormatter.format_text(code, font_case)
+        formatted_book_name = TextFormatter.format_text(book_name, font_case)
+        
+        SessionManager.update_config({
+            'code': formatted_code, 
+            'book_name': formatted_book_name,
+            'original_code': code,
+            'original_book_name': book_name
+        })
+        
+        # Show preview with proper formatting
+        safe_code = FolderManager.sanitize_name(formatted_code)
+        preview_name = f"{safe_code}_{formatted_book_name}"
+        if preview_name != f"{code}_{book_name}":
+            st.info(f"Preview: `{preview_name}`")
 
-def render_parts_configuration_section():
-    """Render parts configuration section"""
+
+def render_custom_parts_configuration_section():
+    """Render custom parts configuration section with individual part creation"""
     config = SessionManager.get('project_config', {})
     
     if not (config.get('code') and config.get('book_name')):
         return
     
-    st.subheader("Step 3: Parts Setup")
+    st.subheader("Step 3: Custom Parts Setup")
+    st.markdown("Create custom-named parts for your book (e.g., 'India', 'Iran', 'History', etc.)")
     
-    num_parts = st.number_input(
-        "Number of Parts",
-        min_value=0,
-        max_value=100,
-        value=config.get('num_parts', 0),
-        step=1,
-        help="How many main parts does the book have?"
-    )
+    # Get existing custom parts
+    custom_parts = SessionManager.get('custom_parts', {})
     
-    SessionManager.update_config({'num_parts': num_parts})
+    # Add new custom part section
+    st.markdown("**Add New Part:**")
     
-    if num_parts > 0:
-        st.info(f"Will create {num_parts} part folders")
+    # Show current font case for reference
+    font_case = SessionManager.get_font_case()
+    st.caption(f"Font formatting: {font_case}")
+    
+    # Check if we just added a part to clear the input
+    input_value = ""
+    if st.session_state.get('part_just_added'):
+        st.session_state['part_just_added'] = False
+        input_value = ""
+    else:
+        input_value = st.session_state.get('part_input_value', "")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        new_part_name = st.text_input(
+            "Part Name",
+            value=input_value,
+            placeholder="e.g., India, Iran, History, Mathematics",
+            help=f"Enter a custom name for this part (will be formatted as: {font_case})",
+            key="new_part_name_input"
+        )
+        
+        # Store the current value
+        st.session_state['part_input_value'] = new_part_name
+    
+    with col2:
+        if st.button("➕ Add Part", type="primary", disabled=not new_part_name.strip()):
+            if new_part_name.strip():
+                add_custom_part(new_part_name.strip(), custom_parts)
+                # Set flag to clear input on next render
+                st.session_state['part_just_added'] = True
+                st.session_state['part_input_value'] = ""
+                st.rerun()
+    
+    # Display existing custom parts (READ-ONLY)
+    if custom_parts:
+        st.markdown("**Current Parts:**")
+        st.info("💡 Use Chapter Management tab to modify or delete parts after folder structure is created.")
+        
+        # Display parts without delete functionality
+        for part_id, part_info in custom_parts.items():
+            formatted_name = part_info.get('name', part_info.get('display_name', 'Unknown'))
+            original_name = part_info.get('original_name', '')
+            
+            st.write(f"📂 **{formatted_name}**")
+            if original_name and original_name != formatted_name:
+                st.caption(f"Original: {original_name}")
+        
+        # Update the total count in config for compatibility
+        SessionManager.update_config({'num_parts': len(custom_parts)})
+        
+        st.info(f"Total parts configured: {len(custom_parts)}")
+    else:
+        st.info("No custom parts created yet. Add parts above to organize your book content.")
+        # Reset num_parts to 0 if no custom parts
+        SessionManager.update_config({'num_parts': 0})
+
+
+def add_custom_part(part_name: str, custom_parts: dict):
+    """Add a new custom part with font formatting"""
+    from core.text_formatter import TextFormatter
+    
+    font_case = SessionManager.get_font_case()
+    formatted_part_name = TextFormatter.format_text(part_name, font_case)
+    
+    # Generate unique ID for the part using formatted name
+    base_id = formatted_part_name.lower().replace(' ', '_').replace('-', '_')
+    part_id = f"part_{len(custom_parts) + 1}_{base_id}"
+    
+    # Ensure unique ID
+    counter = 1
+    original_id = part_id
+    while part_id in custom_parts:
+        part_id = f"{original_id}_{counter}"
+        counter += 1
+    
+    # Add to custom parts
+    custom_parts[part_id] = {
+        'name': formatted_part_name,
+        'display_name': formatted_part_name,
+        'original_name': part_name,
+        'created_timestamp': datetime.now().isoformat()
+    }
+    
+    SessionManager.set('custom_parts', custom_parts)
+    st.success(f"Added part: '{formatted_part_name}'")
+
+
+def delete_custom_part(part_id: str, custom_parts: dict):
+    """Delete a custom part"""
+    if part_id in custom_parts:
+        part_name = custom_parts[part_id]['name']
+        del custom_parts[part_id]
+        SessionManager.set('custom_parts', custom_parts)
+        st.success(f"✅ Deleted part: '{part_name}'")

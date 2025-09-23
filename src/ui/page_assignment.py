@@ -6,8 +6,25 @@ from core.folder_manager import FolderManager, ChapterManager
 from pathlib import Path
 import os
 
+
 def render_page_assignment_page():
     """Render the page assignment and extraction page"""
+    
+    # Check if folder browser returned a selection
+    if st.session_state.get('selected_page_destination'):
+        selected_path = st.session_state['selected_page_destination']
+        selected_name = st.session_state['selected_page_destination_name']
+        
+        st.success(f"Folder selected from browser: {selected_name}")
+        
+        # Clear the browser selection
+        del st.session_state['selected_page_destination']
+        del st.session_state['selected_page_destination_name']
+        
+        # Proceed with this destination
+        destination_info = (selected_path, selected_name)
+        render_page_range_input(destination_info)
+        return
     
     # Check prerequisites
     if not SessionManager.get('folder_structure_created'):
@@ -22,7 +39,6 @@ def render_page_assignment_page():
         extraction_info = st.session_state.get('last_extraction_info', {})
         st.success(f"✅ Successfully extracted {extraction_info.get('pages_count', 0)} pages!")
         st.info(f"📂 Files saved to: `{extraction_info.get('destination', 'Unknown')}`")
-        # Clear the flag
         st.session_state['extraction_just_completed'] = False
     
     # Main layout
@@ -44,12 +60,13 @@ def render_prerequisites_warning():
     3. Create folder structure
     """)
 
+
 def render_assignment_interface():
     """Render the main page assignment interface"""
     
     st.markdown("### 📂 Select Destination")
     
-    # Single unified destination selection approach
+    # Show destination selection options - simplified to only 2 options
     destination_mode = st.radio(
         "Choose destination method:",
         ["Select from project folders", "Browse for any folder"],
@@ -57,13 +74,19 @@ def render_assignment_interface():
         key="destination_mode_radio"
     )
     
+    destination_info = None
+    
     if destination_mode == "Select from project folders":
         destination_info = render_project_folder_selection()
-    else:
+    else:  # Browse for any folder
         destination_info = render_system_folder_browser()
     
+    # Only show page range input if we have a valid destination
     if destination_info and destination_info[0]:
         render_page_range_input(destination_info)
+    else:
+        st.info("Please select a destination folder first")
+
 
 def render_project_folder_selection() -> Tuple[str, str]:
     """Render project folder selection with browse interface"""
@@ -220,56 +243,65 @@ def get_chapters_for_part(part_number: int) -> List[Dict]:
     chapters_info.sort(key=sort_key)
     return chapters_info
 
+
 def render_system_folder_browser() -> Tuple[str, str]:
-    """Render system-wide folder browser with manual path input"""
+    """Render system-wide folder browser for page extraction"""
     
-    st.markdown("**Specify any folder on your system:**")
+    st.markdown("**Choose destination:**")
     
-    # Get initial value (empty if extraction was just completed)
-    initial_path = "" if st.session_state.get('extraction_just_completed') else ""
+    # Check if we should show the browser
+    if st.button("📂 Browse for Folder", key="open_browser_btn", type="primary"):
+        st.session_state['show_folder_browser'] = True
+        st.session_state['folder_browser_active'] = True
+        st.session_state['folder_browser_context'] = 'page_assignment'
+        st.rerun()
     
-    # Direct path input with unique key
-    path_input_key = f"custom_folder_path_{hash(str(st.session_state.get('last_extraction_info', {}))) % 10000}"
-    custom_folder_path = st.text_input(
-        "Destination Folder Path",
-        value=initial_path,
-        placeholder="e.g., C:\\Users\\YourName\\Documents\\MyFolder or /home/user/MyFolder",
-        help="Enter the complete path where you want to extract pages",
-        key=path_input_key
+    # Quick selection options
+    st.markdown("**Or select quickly:**")
+    from src.ui.folder_selector import get_quick_access_folders
+    
+    quick_folders = get_quick_access_folders()
+    
+    for name, path in quick_folders.items():
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.write(f"📁 {name}")
+            st.caption(path)
+        with col2:
+            if st.button("Select", key=f"select_{name.replace(' ', '_')}"):
+                return (path, Path(path).name)
+    
+    # Manual input
+    st.markdown("**Or enter path manually:**")
+    manual_path = st.text_input(
+        "Folder path:",
+        placeholder="Enter full path to destination folder",
+        key="manual_path_input"
     )
     
-    if custom_folder_path.strip():
-        folder_path = Path(custom_folder_path.strip())
-        
-        # Validate path
-        if folder_path.exists() and folder_path.is_dir():
-            st.success(f"✅ Valid folder: {folder_path.absolute()}")
-            return (str(folder_path.absolute()), folder_path.name)
-        elif not folder_path.exists():
-            st.warning("⚠️ Folder doesn't exist. It will be created during extraction.")
-            return (str(folder_path.absolute()), folder_path.name)
-        else:
-            st.error("❌ Invalid path or not a directory")
+    if manual_path.strip():
+        path = Path(manual_path.strip())
+        if st.button("Use This Path", key="use_manual_path"):
+            return (str(path.absolute()), path.name)
     
     return ("", "")
 
+
 def get_project_path(base_name: str) -> Path:
-    """Get the project path using consistent resolution"""
-    current_dir = Path.cwd()
+    """Get the project path using project destination"""
+    # Use project destination instead of current directory
+    project_destination = SessionManager.get_project_destination()
+    if project_destination and os.path.exists(project_destination):
+        base_path = Path(project_destination)
+    else:
+        base_path = Path.cwd()
     
-    possible_paths = [
-        Path(base_name),
-        current_dir / base_name,
-        Path.cwd() / base_name
-    ]
+    project_path = base_path / base_name
     
-    for path in possible_paths:
-        if path.exists():
-            return path
+    if not project_path.exists():
+        # Create if doesn't exist
+        project_path.mkdir(parents=True, exist_ok=True)
     
-    # Create if doesn't exist
-    project_path = current_dir / base_name
-    project_path.mkdir(parents=True, exist_ok=True)
     return project_path
 
 def get_project_folders_with_metadata(project_path: Path) -> List[tuple]:
@@ -334,14 +366,21 @@ def get_project_folders_with_metadata(project_path: Path) -> List[tuple]:
     except Exception:
         return []
 
+
 def render_page_range_input(destination_info: Tuple[str, str]):
     """Render page range input and extraction controls"""
     
     destination_path, naming_base = destination_info
     
-    st.markdown("### 📄 Page Range Assignment")
+    st.markdown("### Page Range Assignment")
     st.markdown(f"**Selected Destination:** `{Path(destination_path).name}`")
-    st.caption(f"📍 Full path: {destination_path}")
+    st.caption(f"Full path: {destination_path}")
+    
+    # Verify the destination exists and show status
+    if os.path.exists(destination_path):
+        st.success("Destination folder is accessible")
+    else:
+        st.info("Destination folder will be created during extraction")
     
     total_pages = SessionManager.get('total_pages', 0)
     
@@ -366,7 +405,7 @@ def render_page_range_input(destination_info: Tuple[str, str]):
     with col1:
         preview_disabled = not page_ranges_text.strip()
         preview_key = f"preview_btn_{hash(destination_path + str(preview_disabled)) % 10000}"
-        if st.button("📋 Preview Assignment", type="secondary", disabled=preview_disabled, key=preview_key):
+        if st.button("Preview Assignment", type="secondary", disabled=preview_disabled, key=preview_key):
             if page_ranges_text.strip():
                 page_ranges = [r.strip() for r in page_ranges_text.split(',') if r.strip()]
                 render_assignment_preview(Path(destination_path).name, page_ranges, total_pages, naming_base)
@@ -374,9 +413,11 @@ def render_page_range_input(destination_info: Tuple[str, str]):
     with col2:
         extract_disabled = not page_ranges_text.strip()
         extract_key = f"extract_btn_{hash(destination_path + str(extract_disabled)) % 10000}"
-        if st.button("🚀 Extract Pages", type="primary", disabled=extract_disabled, key=extract_key):
+        if st.button("Extract Pages", type="primary", disabled=extract_disabled, key=extract_key):
             if page_ranges_text.strip():
                 page_ranges = [r.strip() for r in page_ranges_text.split(',') if r.strip()]
+                # Debug: Confirm destination before extraction
+                st.info(f"Starting extraction to: {destination_path}")
                 execute_page_extraction(destination_info, page_ranges, total_pages)
     
     # Show preview of page ranges if text is entered
@@ -388,6 +429,7 @@ def render_page_range_input(destination_info: Tuple[str, str]):
             st.error(preview)
         else:
             st.info(preview)
+
 
 def render_assignment_preview(display_name: str, page_ranges: List[str], total_pages: int, naming_base: str):
     """Render preview of page assignment"""
@@ -414,8 +456,10 @@ def render_assignment_preview(display_name: str, page_ranges: List[str], total_p
     else:
         st.error("No valid pages found in the specified ranges")
         
+
+
 def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List[str], total_pages: int):
-    """Execute the page extraction process with proper path resolution"""
+    """Execute the page extraction process"""
     
     destination_path, naming_base = destination_info
     folder_path = Path(destination_path)
@@ -425,7 +469,7 @@ def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List
         if folder_path.exists():
             existing_pdfs = list(folder_path.glob("*.pdf"))
             if existing_pdfs:
-                st.warning(f"⚠️ Destination folder already contains {len(existing_pdfs)} PDF files. New files will be added alongside existing ones.")
+                st.warning(f"Destination folder already contains {len(existing_pdfs)} PDF files. New files will be added alongside existing ones.")
         
         # Ensure the folder exists
         folder_path.mkdir(parents=True, exist_ok=True)
@@ -438,8 +482,9 @@ def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List
         status_text.text(f"Extracting pages to {folder_path.name}...")
         progress_bar.progress(20)
         
+        # Pass the exact path without any modification
         success, created_files, error_msg = PDFExtractor.extract_pages_to_folder(
-            page_ranges, str(folder_path), naming_base, total_pages
+            page_ranges, destination_path, naming_base, total_pages
         )
         
         progress_bar.progress(100)
@@ -449,7 +494,7 @@ def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List
             extraction_history = SessionManager.get('extraction_history', [])
             extraction_record = {
                 'destination': folder_path.name,
-                'destination_path': str(folder_path.absolute()),
+                'destination_path': destination_path,
                 'pages_extracted': len(created_files),
                 'page_ranges': page_ranges,
                 'files_created': created_files,
@@ -461,7 +506,7 @@ def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List
             # Store extraction info for success message
             st.session_state['last_extraction_info'] = {
                 'pages_count': len(created_files),
-                'destination': str(folder_path.absolute())
+                'destination': destination_path
             }
             st.session_state['extraction_just_completed'] = True
             
@@ -475,23 +520,15 @@ def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List
         elif success and not created_files:
             progress_bar.empty()
             status_text.empty()
-            st.warning("⚠️ No pages were extracted. Please check your page ranges.")
+            st.warning("No pages were extracted. Please check your page ranges.")
         else:
             progress_bar.empty()
             status_text.empty()
-            st.error(f"❌ Extraction failed: {error_msg}")
+            st.error(f"Extraction failed: {error_msg}")
     
-    except FileExistsError:
-        st.error(f"❌ Some files already exist in the destination folder. Please clean the folder or choose a different destination.")
-    except PermissionError:
-        st.error(f"❌ Permission denied. Cannot write to folder '{folder_path.name}'. Please check folder permissions.")
     except Exception as e:
-        if "No space left" in str(e).lower():
-            st.error(f"❌ Insufficient disk space to extract files. Please free up space and try again.")
-        elif "access denied" in str(e).lower():
-            st.error(f"❌ Access denied. Please check if the folder is open in another application.")
-        else:
-            st.error(f"❌ Extraction error: {str(e)}")
+        st.error(f"Extraction error: {str(e)}")
+
 
 def render_assignment_summary():
     """Render summary of page assignments and extractions"""

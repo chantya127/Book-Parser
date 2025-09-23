@@ -11,8 +11,9 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.append(str(Path(__file__).parent / "src"))
 
-from ui.app_layout import setup_page_config, render_main_app
-from core.session_manager import SessionManager
+from src.core.session_manager import SessionManager
+from src.ui.app_layout import setup_page_config, render_main_app
+
 
 def main():
     """Main application entry point"""
@@ -34,7 +35,458 @@ if __name__ == "__main__":
 
 
 
+# ===== File: src/core/chapter_utils.py =====
+
+# core/chapter_utils.py - Centralized chapter management utilities
+
+from typing import List, Dict, Tuple, Optional
+from enum import Enum
+import streamlit as st
+from core.text_formatter import TextFormatter  # NEW IMPORT
+from core.session_manager import SessionManager
+
+class NumberingSystem(Enum):
+    """Enumeration for chapter numbering systems"""
+    NUMBERS = "Numbers (1, 2, 3...)"
+    WORDS = "Words (One, Two, Three...)"
+    ROMAN = "Roman (I, II, III...)"
+    NULL_SEQUENCE = "Null Sequence (Chapter Null_Null Name, Chapter Null_Null Name (1)...)"
+
+
+class ChapterUtils:
+    """Centralized utilities for chapter management"""
+    
+    # Pre-computed lookup tables for performance
+
+    # Keep existing lookup tables
+    WORD_NUMBERS = [
+        "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+        "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", 
+        "Eighteen", "Nineteen", "Twenty", "Twenty-One", "Twenty-Two", "Twenty-Three",
+        "Twenty-Four", "Twenty-Five", "Twenty-Six", "Twenty-Seven", "Twenty-Eight",
+        "Twenty-Nine", "Thirty", "Thirty-One", "Thirty-Two", "Thirty-Three", "Thirty-Four",
+        "Thirty-Five", "Thirty-Six", "Thirty-Seven", "Thirty-Eight", "Thirty-Nine", "Forty",
+        "Forty-One", "Forty-Two", "Forty-Three", "Forty-Four", "Forty-Five", "Forty-Six",
+        "Forty-Seven", "Forty-Eight", "Forty-Nine", "Fifty", "Fifty-One", "Fifty-Two", "Fifty-Three",
+        "Fifty-Four", "Fifty-Five", "Fifty-Six", "Fifty-Seven", "Fifty-Eight", "Fifty-Nine", "Sixty",
+        "Sixty-One", "Sixty-Two", "Sixty-Three", "Sixty-Four", "Sixty-Five", "Sixty-Six",
+        "Sixty-Seven", "Sixty-Eight", "Sixty-Nine", "Seventy", "Seventy-One", "Seventy-Two", "Seventy-Three",
+        "Seventy-Four", "Seventy-Five", "Seventy-Six", "Seventy-Seven", "Seventy-Eight", "Seventy-Nine", "Eighty",
+        "Eighty-One", "Eighty-Two", "Eighty-Three", "Eighty-Four", "Eighty-Five", "Eighty-Six",
+        "Eighty-Seven", "Eighty-Eight", "Eighty-Nine", "Ninety", "Ninety-One", "Ninety-Two", "Ninety-Three",
+        "Ninety-Four", "Ninety-Five", "Ninety-Six", "Ninety-Seven", "Ninety-Eight", "Ninety-Nine", "One Hundred"
+    ]
+    
+    ROMAN_NUMERALS = [
+        "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+        "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX",
+        "XXI", "XXII", "XXIII", "XXIV", "XXV", "XXVI", "XXVII", "XXVIII", "XXIX", "XXX",
+        "XXXI", "XXXII", "XXXIII", "XXXIV", "XXXV", "XXXVI", "XXXVII", "XXXVIII", "XXXIX", "XL",
+        "XLI", "XLII", "XLIII", "XLIV", "XLV", "XLVI", "XLVII", "XLVIII", "XLIX", "L",
+        "LI", "LII", "LIII", "LIV", "LV", "LVI", "LVII", "LVIII", "LIX", "LX",
+        "LXI", "LXII", "LXIII", "LXIV", "LXV", "LXVI", "LXVII", "LXVIII", "LXIX", "LXX",
+        "LXXI", "LXXII", "LXXIII", "LXXIV", "LXXV", "LXXVI", "LXXVII", "LXXVIII", "LXXIX", "LXXX",
+        "LXXXI", "LXXXII", "LXXXIII", "LXXXIV", "LXXXV", "LXXXVI", "LXXXVII", "LXXXVIII", "LXXXIX", "XC",
+        "XCI", "XCII", "XCIII", "XCIV", "XCV", "XCVI", "XCVII", "XCVIII", "XCIX", "C"
+    ]
+    
+    @staticmethod
+    def get_numbering_options() -> List[str]:
+        """Get all available numbering system options"""
+        return [system.value for system in NumberingSystem]
+    
+    @staticmethod
+    def format_chapter_number(chapter_index: int, numbering_system: str, suffix: str = "") -> str:
+        """
+        Format chapter number based on numbering system with optional suffix
+        
+        Args:
+            chapter_index: 0-based chapter index
+            numbering_system: Numbering system string
+            suffix: Optional suffix to append to chapter number (e.g., "&")
+            
+        Returns:
+            Formatted chapter number with suffix
+        """
+        chapter_num = chapter_index + 1  # Convert to 1-based
+        
+        # Get font case properly
+        import streamlit as st
+        font_case = st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+        
+        if numbering_system == NumberingSystem.WORDS.value:
+            result = ChapterUtils.WORD_NUMBERS[chapter_num - 1] if chapter_num <= len(ChapterUtils.WORD_NUMBERS) else str(chapter_num)
+        elif numbering_system == NumberingSystem.ROMAN.value:
+            result = ChapterUtils.ROMAN_NUMERALS[chapter_num - 1] if chapter_num <= len(ChapterUtils.ROMAN_NUMERALS) else str(chapter_num)
+        elif numbering_system == NumberingSystem.NULL_SEQUENCE.value:
+            result = "NULL"
+        else:  # Default to numbers
+            result = str(chapter_num)
+        
+        # Apply suffix if provided
+        if suffix and suffix.strip():
+            result = f"{result}{suffix.strip()}"
+        
+        # Apply font formatting - import here to avoid circular dependency
+        from core.text_formatter import TextFormatter
+        return TextFormatter.format_text(result, font_case)
+
+
+        @staticmethod
+        def generate_null_sequence_name(chapter_index: int, font_case: str) -> str:
+            """
+            Generate NULL sequence chapter name: "Name", "Name (1)", "Name (2)", etc.
+            
+            Args:
+                chapter_index: 0-based chapter index
+                font_case: Font case setting
+                
+            Returns:
+                Formatted chapter name for NULL sequence
+            """
+            from core.text_formatter import TextFormatter
+            
+            if chapter_index == 0:
+                base_name = "Name"
+            else:
+                base_name = f"Name ({chapter_index})"
+            
+            return TextFormatter.format_chapter_name(base_name, font_case)
+        
+    @staticmethod
+    def update_chapters_with_numbering(chapters: List[Dict], numbering_system: str, suffix: str = "") -> List[Dict]:
+            """
+            Update chapter numbers based on new numbering system and suffix
+            
+            Args:
+                chapters: List of chapter dictionaries
+                numbering_system: New numbering system
+                suffix: Optional suffix for chapter numbers
+                
+            Returns:
+                Updated chapters list
+            """
+            updated_chapters = []
+            font_case = st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+            
+            for i, chapter in enumerate(chapters):
+                new_number = ChapterUtils.format_chapter_number(i, numbering_system, suffix)
+                updated_chapter = chapter.copy()
+                updated_chapter['number'] = new_number
+                
+                # Handle NULL sequence names
+                if numbering_system == NumberingSystem.NULL_SEQUENCE.value:
+                    updated_chapter['name'] = ChapterUtils.generate_null_sequence_name(i, font_case)
+                    updated_chapter['is_null_sequence'] = True
+                else:
+                    # Preserve existing name if not null sequence, or clear if switching from null sequence
+                    if chapter.get('is_null_sequence'):
+                        updated_chapter['name'] = ''
+                    updated_chapter['is_null_sequence'] = False
+                    
+                updated_chapters.append(updated_chapter)
+        
+            return updated_chapters
+        
+    @staticmethod
+    def create_chapters_list(count: int, numbering_system: str, suffix: str = "") -> List[Dict]:
+            """
+            Create a new list of chapters with proper numbering and suffix
+            
+            Args:
+                count: Number of chapters to create
+                numbering_system: Numbering system to use
+                suffix: Optional suffix for chapter numbers
+                
+            Returns:
+                List of chapter dictionaries
+            """
+            chapters = []
+            
+            # Get font case from session state (import here to avoid circular dependency)
+            import streamlit as st
+            font_case = st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+            
+            for i in range(count):
+                is_null_sequence = numbering_system == NumberingSystem.NULL_SEQUENCE.value
+                
+                chapter_number = ChapterUtils.format_chapter_number(i, numbering_system, suffix)
+                
+                # Handle NULL sequence chapter names specially
+                if is_null_sequence:
+                    chapter_name = ChapterUtils.generate_null_sequence_name(i, font_case)
+                else:
+                    chapter_name = ''
+                
+                chapters.append({
+                    'number': chapter_number, 
+                    'name': chapter_name,
+                    'is_null_sequence': is_null_sequence
+                })
+            
+            return chapters    
+
+    @staticmethod
+    def render_numbering_system_selector(context_key: str, current_system: str = None, 
+                                        help_text: str = None, suffix: str = "") -> tuple:
+            """
+            Render numbering system selector with suffix input
+            
+            Args:
+                context_key: Unique key for this selector
+                current_system: Currently selected system
+                help_text: Help text for the selector
+                suffix: Current suffix value
+                
+            Returns:
+                Tuple of (selected_numbering_system, chapter_suffix)
+            """
+            options = ChapterUtils.get_numbering_options()
+            
+            if current_system is None:
+                current_system = NumberingSystem.NUMBERS.value
+            
+            default_index = options.index(current_system) if current_system in options else 0
+            
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                selected_system = st.selectbox(
+                    "Chapter Numbering System",
+                    options,
+                    index=default_index,
+                    key=f"numbering_system_{context_key}",
+                    help=help_text or "Choose how chapters should be numbered"
+                )
+            
+            with col2:
+                chapter_suffix = st.text_input(
+                    "Number Suffix",
+                    value=suffix,
+                    placeholder="e.g., &, -, :",
+                    key=f"chapter_suffix_{context_key}",
+                    help="Optional text to append to chapter numbers (e.g., '&' → 'Chapter 1&_Name')"
+                )
+            
+            return selected_system, chapter_suffix
+
+    @staticmethod
+    def generate_null_sequence_name(chapter_index: int, font_case: str) -> str:
+        """
+        Generate NULL sequence chapter name: "Name", "Name (1)", "Name (2)", etc.
+        """
+        from core.text_formatter import TextFormatter
+        
+        if chapter_index == 0:
+            base_name = "Name"
+        else:
+            base_name = f"Name ({chapter_index})"
+        
+        return TextFormatter.format_text(base_name, font_case)
+
+class ChapterConfigManager:
+    """Manages chapter configuration state and operations"""
+    
+    @staticmethod
+    def get_session_manager():
+        """Get SessionManager to avoid circular imports"""
+        from core.session_manager import SessionManager
+        return SessionManager
+    
+    @staticmethod
+    def update_chapter_count(context_key: str, target_count: int, current_chapters: List[Dict], 
+                            numbering_system: str, suffix: str = ""):
+        """
+        Update chapter count with proper state management including suffix
+        
+        Args:
+            context_key: Context identifier (part name or 'standalone')
+            target_count: Target number of chapters
+            current_chapters: Current chapters list
+            numbering_system: Current numbering system
+            suffix: Chapter number suffix
+        """
+        SessionManager = ChapterConfigManager.get_session_manager()
+        
+        if target_count > len(current_chapters):
+            # Add new chapters
+            font_case = st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+            for i in range(len(current_chapters), target_count):
+                chapter_number = ChapterUtils.format_chapter_number(i, numbering_system, suffix)
+                
+                if numbering_system == NumberingSystem.NULL_SEQUENCE.value:
+                    chapter_name = ChapterUtils.generate_null_sequence_name(i, font_case)
+                    is_null_sequence = True
+                else:
+                    chapter_name = ''
+                    is_null_sequence = False
+                    
+                current_chapters.append({
+                    'number': chapter_number, 
+                    'name': chapter_name,
+                    'is_null_sequence': is_null_sequence
+                })
+        else:
+            # Remove extra chapters
+            current_chapters = current_chapters[:target_count]
+        
+        # Update session state based on context
+        if context_key == 'standalone':
+            SessionManager.set('standalone_chapters', current_chapters)
+        else:
+            chapters_config = SessionManager.get('chapters_config', {})
+            chapters_config[context_key] = current_chapters
+            SessionManager.set('chapters_config', chapters_config)
+        
+        return current_chapters
+    
+    @staticmethod
+    def update_numbering_system(context_key: str, new_system: str):
+        """
+        Update numbering system and refresh all chapter numbers
+        
+        Args:
+            context_key: Context identifier (part name or 'standalone')
+            new_system: New numbering system
+        """
+        SessionManager = ChapterConfigManager.get_session_manager()
+        
+        # Update numbering systems config
+        numbering_config = SessionManager.get('numbering_systems', {})
+        numbering_config[context_key] = new_system
+        SessionManager.set('numbering_systems', numbering_config)
+        
+        # Get current suffix for this context
+        current_suffix = SessionManager.get_chapter_suffix(context_key)
+        
+        # Update chapter numbers based on context
+        if context_key == 'standalone':
+            current_chapters = SessionManager.get('standalone_chapters', [])
+            if current_chapters:
+                updated_chapters = ChapterUtils.update_chapters_with_numbering(current_chapters, new_system, current_suffix)
+                SessionManager.set('standalone_chapters', updated_chapters)
+        else:
+            chapters_config = SessionManager.get('chapters_config', {})
+            if context_key in chapters_config and chapters_config[context_key]:
+                updated_chapters = ChapterUtils.update_chapters_with_numbering(chapters_config[context_key], new_system, current_suffix)
+                chapters_config[context_key] = updated_chapters
+                SessionManager.set('chapters_config', chapters_config)
+
+    @staticmethod
+    def get_current_numbering_system(context_key: str) -> str:
+        """Get current numbering system for a context"""
+        SessionManager = ChapterConfigManager.get_session_manager()
+        numbering_config = SessionManager.get('numbering_systems', {})
+        return numbering_config.get(context_key, NumberingSystem.NUMBERS.value)
+    
+    @staticmethod
+    def get_chapters_for_context(context_key: str) -> List[Dict]:
+        """Get chapters list for a specific context"""
+        SessionManager = ChapterConfigManager.get_session_manager()
+        
+        if context_key == 'standalone':
+            return SessionManager.get('standalone_chapters', [])
+        else:
+            chapters_config = SessionManager.get('chapters_config', {})
+            return chapters_config.get(context_key, [])
+
+
+class PartManager:
+    """Manages part creation and deletion operations"""
+    
+    @staticmethod
+    def add_part_with_immediate_sync(config: Dict, part_name: str) -> bool:
+        """
+        Add part with immediate session state synchronization and font formatting
+        """
+        try:
+            from core.folder_manager import FolderManager
+            from core.text_formatter import TextFormatter  # Add this import
+            from pathlib import Path
+            from datetime import datetime
+            
+            SessionManager = ChapterConfigManager.get_session_manager()
+            
+            # Apply font formatting to part name
+            font_case = SessionManager.get_font_case()
+            formatted_part_name = TextFormatter.format_part_name(part_name, font_case)
+            
+            safe_code = FolderManager.sanitize_name(config['code'])
+            book_name = config['book_name']
+            base_name = f"{safe_code}_{book_name}"
+            
+            # Path resolution
+            current_dir = Path.cwd()
+            possible_paths = [
+                Path(base_name),
+                current_dir / base_name,
+                Path.cwd() / base_name
+            ]
+            
+            project_path = None
+            for path in possible_paths:
+                if path.exists():
+                    project_path = path
+                    break
+            
+            if not project_path:
+                project_path = current_dir / base_name
+                project_path.mkdir(parents=True, exist_ok=True)
+            
+            # Create part folder with formatted name
+            part_folder = project_path / f"{base_name}_{formatted_part_name}"
+            
+            if part_folder.exists():
+                return False  # Part already exists
+            
+            part_folder.mkdir(exist_ok=True)
+            
+            # Update session state immediately with formatted name
+            custom_parts = SessionManager.get('custom_parts', {})
+            base_id = formatted_part_name.lower().replace(' ', '_').replace('-', '_')
+            part_id = f"part_{len(custom_parts) + 1}_{base_id}"
+            
+            # Ensure unique ID
+            counter = 1
+            original_id = part_id
+            while part_id in custom_parts:
+                part_id = f"{original_id}_{counter}"
+                counter += 1
+            
+            custom_parts[part_id] = {
+                'name': formatted_part_name,  # Use formatted name
+                'display_name': formatted_part_name,
+                'original_name': part_name,  # Keep original
+                'created_timestamp': datetime.now().isoformat()
+            }
+            
+            SessionManager.set('custom_parts', custom_parts)
+            
+            # Update created folders list
+            current_folders = SessionManager.get('created_folders', [])
+            new_part_path = str(part_folder.absolute())
+            if new_part_path not in current_folders:
+                current_folders.append(new_part_path)
+                SessionManager.set('created_folders', current_folders)
+            
+            # Set operation completion flags
+            st.session_state['part_operation_completed'] = True
+            st.session_state['part_operation_info'] = {
+                'operation': 'add',
+                'part_name': formatted_part_name,  # Show formatted name in success message
+                'location': str(part_folder.absolute())
+            }
+            
+            return True
+            
+        except Exception as e:
+            st.error(f"Error creating part: {str(e)}")
+            return False
+
+
 # ===== File: src/core/folder_manager.py =====
+
+# core/folder_manager.py - Modified to support standalone chapters
 
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
@@ -48,109 +500,18 @@ class FolderManager:
     DEFAULT_FOLDERS = ['prologue', 'index', 'epilogue']
     
     @staticmethod
-    def create_project_structure(code: str, book_name: str) -> Tuple[Optional[Path], List[str]]:
-        """
-        Create the basic project folder structure
-        
-        Args:
-            code: Project code
-            book_name: Book name (kept as is, no sanitization)
-            
-        Returns:
-            Tuple of (project path, list of created folders)
-        """
-        if not code or not book_name:
-            return None, []
-        
-        try:
-            # Sanitize only the code, keep book name as is
-            safe_code = FolderManager.sanitize_name(code)
-            base_name = f"{safe_code}_{book_name}"  # Book name kept as is
-            
-            # Create main project folder
-            project_path = Path(base_name)
-            project_path.mkdir(exist_ok=True)
-            
-            created_folders = []
-            
-            # Create default folders
-            for folder in FolderManager.DEFAULT_FOLDERS:
-                folder_path = project_path / f"{base_name}_{folder}"
-                folder_path.mkdir(exist_ok=True)
-                created_folders.append(str(folder_path.absolute()))
-            
-            return project_path, created_folders
-            
-        except Exception as e:
-            st.error(f"Error creating folder structure: {str(e)}")
-            return None, []
-    
-    @staticmethod
-    def create_parts_folders(project_path: Path, base_name: str, num_parts: int) -> List[str]:
-        """Create part folders"""
-        created_parts = []
-        
-        try:
-            for i in range(1, num_parts + 1):
-                part_folder = project_path / f"{base_name}_Part_{i}"
-                part_folder.mkdir(exist_ok=True)
-                created_parts.append(str(part_folder.absolute()))
-            
-            return created_parts
-        except Exception as e:
-            st.error(f"Error creating part folders: {str(e)}")
-            return []
-    
-    @staticmethod
-    def create_custom_folder(project_path: Path, base_name: str, parent_folder_path: str, custom_folder_name: str, session_manager=None) -> Optional[str]:
-        """
-        Create a custom folder inside any existing folder with parent prefix + custom name
-        
-        Args:
-            project_path: Main project path
-            base_name: Base project name
-            parent_folder_path: Actual path of the parent folder
-            custom_folder_name: Name for the new custom folder (will be prefixed with parent name)
-            session_manager: SessionManager instance to avoid circular import
-            
-        Returns:
-            Path of created folder or None if failed
-        """
-        try:
-            # Import only when needed to avoid circular imports
-            if session_manager is None:
-                from core.session_manager import SessionManager
-                session_manager = SessionManager
-            
-            parent_path = Path(parent_folder_path)
-            parent_folder_name = parent_path.name
-            
-            # FIXED: Create folder with parent prefix + custom name (following project convention)
-            final_folder_name = f"{parent_folder_name}_{custom_folder_name}"
-            custom_folder_path = parent_path / final_folder_name
-            custom_folder_path.mkdir(exist_ok=True)
-            
-            # Generate unique ID for the custom folder
-            custom_folder_id = f"custom_{random.randint(10000, 99999)}"
-            
-            # Store metadata
-            folder_metadata = session_manager.get('folder_metadata', {})
-            folder_metadata[custom_folder_id] = {
-                'display_name': f"{parent_folder_name} → {custom_folder_name}",
-                'actual_path': str(custom_folder_path.absolute()),
-                'type': 'custom',
-                'parent_path': parent_folder_path,
-                'folder_name': final_folder_name,  # Full name with prefix
-                'naming_base': final_folder_name   # Use full name for file naming
-            }
-            
-            session_manager.set('folder_metadata', folder_metadata)
-            return str(custom_folder_path.absolute())
-            
-        except Exception as e:
-            st.error(f"Error creating custom folder: {str(e)}")
-            return None
-    
+    def get_default_folder_options() -> List[Dict[str, str]]:
+        """Get available default folder options with descriptions"""
+        return [
+            {'name': 'prologue', 'description': 'Introduction or preface content'},
+            {'name': 'index', 'description': 'Table of contents, index, or reference pages'},
+            {'name': 'epilogue', 'description': 'Conclusion, appendix, or closing content'},
+            {'name': 'bibliography', 'description': 'References and citations'},
+            {'name': 'glossary', 'description': 'Terms and definitions'},
+            {'name': 'exercises', 'description': 'Practice problems and solutions'},
+            {'name': 'notes', 'description': 'Additional notes and annotations'}
+        ]
+
     @staticmethod
     def sanitize_name(name: str) -> str:
         """Sanitize name for folder creation"""
@@ -165,83 +526,282 @@ class FolderManager:
         
         return name[:50]  # Limit length
     
+    
+
     @staticmethod
-    def get_folder_preview(code: str, book_name: str, num_parts: int = 0) -> List[str]:
-        """Generate preview of folder structure"""
+    def create_project_structure(code: str, book_name: str, selected_folders: List[str] = None) -> Tuple[Optional[Path], List[str]]:
+        """
+        Create the basic project folder structure with selected default folders in specified location
+        """
         if not code or not book_name:
+            return None, []
+        
+        try:
+            # Lazy import to avoid circular dependency
+            from core.text_formatter import TextFormatter
+            from core.session_manager import SessionManager
+            
+            # Get font case and apply formatting
+            font_case = st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+            formatted_code = TextFormatter.format_project_code(code, font_case)
+            formatted_book_name = TextFormatter.format_book_name(book_name, font_case)
+            
+            # Sanitize the code but keep book name as-is with only font formatting
+            safe_code = FolderManager.sanitize_name(formatted_code)
+            base_name = f"{safe_code}_{formatted_book_name}"
+            
+            # Get project destination - if set, use it; otherwise use current directory
+            project_destination = SessionManager.get_project_destination()
+            if project_destination and os.path.exists(project_destination):
+                base_path = Path(project_destination)
+            else:
+                base_path = Path.cwd()
+            
+            # Create main project folder in the specified location
+            project_path = base_path / base_name
+            project_path.mkdir(exist_ok=True)
+            
+            created_folders = []
+            
+            # Create only selected default folders with formatting
+            if selected_folders:
+                for folder in selected_folders:
+                    formatted_folder = TextFormatter.format_folder_name(folder, font_case)
+                    folder_path = project_path / f"{base_name}_{formatted_folder}"
+                    folder_path.mkdir(exist_ok=True)
+                    created_folders.append(str(folder_path.absolute()))
+            
+            return project_path, created_folders
+            
+        except Exception as e:
+            st.error(f"Error creating folder structure: {str(e)}")
+            return None, []
+
+
+    @staticmethod
+    def create_custom_parts_folders(project_path: Path, base_name: str, custom_parts: Dict) -> List[str]:
+        """Create custom named part folders with font formatting"""
+        created_parts = []
+        
+        try:
+            # Lazy import to avoid circular dependency
+            from core.text_formatter import TextFormatter
+            font_case = st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+            
+            for part_id, part_info in custom_parts.items():
+                part_name = part_info['name']
+                # Apply additional formatting if needed
+                formatted_part_name = TextFormatter.format_part_name(part_name, font_case)
+                
+                # Create folder with format: {base_name}_{formatted_part_name}
+                part_folder = project_path / f"{base_name}_{formatted_part_name}"
+                part_folder.mkdir(exist_ok=True)
+                created_parts.append(str(part_folder.absolute()))
+            
+            return created_parts
+        except Exception as e:
+            st.error(f"Error creating custom part folders: {str(e)}")
             return []
-        
-        safe_code = FolderManager.sanitize_name(code)
-        base_name = f"{safe_code}_{book_name}"  # Book name kept as is
-        preview = []
-        
-        # Default folders
-        for folder in FolderManager.DEFAULT_FOLDERS:
-            preview.append(f"{base_name}_{folder}")
-        
-        # Part folders
-        for i in range(1, num_parts + 1):
-            preview.append(f"{base_name}_Part_{i}")
-        
-        return preview
 
 
 class ChapterManager:
-    """Manages chapter creation and organization within parts"""
+    """Manages chapter creation and organization within parts and standalone"""
+    
     
     @staticmethod
     def generate_chapter_folder_name(parent_folder: str, chapter_number: str = None, 
-                                   chapter_name: str = None) -> str:
+                                chapter_name: str = None) -> str:
         """
         Generate chapter folder name following the convention:
-        {base_project_name}_Chapter_{chapter_number}_{chapter_name}
+        {base_project_name}_Chapter {chapter_number}_{chapter_name}
         
         Args:
-            parent_folder: Parent folder name (e.g., CS101_DataStructures_Part_1)
-            chapter_number: Chapter number (can be None)
+            parent_folder: Parent folder name
+            chapter_number: Chapter number (can be None or NULL sequence format)
             chapter_name: Chapter name (can be None)
             
         Returns:
-            Properly formatted chapter folder name
+            Properly formatted chapter folder name with correct spacing
         """
-        # Extract base name by removing the part suffix
+        # Extract base name by removing the part suffix or use as-is for standalone
         if "_Part_" in parent_folder:
             base_name = parent_folder.split("_Part_")[0]
         else:
-            base_name = parent_folder
+            # For custom parts or standalone chapters, find the base 
+            parts = parent_folder.split("_")
+            if len(parts) >= 3:
+                base_name = "_".join(parts[:-1]) if not ChapterManager.is_project_root_folder(parent_folder) else parent_folder
+            else:
+                base_name = parent_folder
         
         # Handle missing values with improved formatting
         if chapter_number is None or chapter_number.strip() == "":
-            chapter_num = "null"
+            chapter_num = "Null_Null Name"
         else:
             chapter_num = chapter_number.strip()
         
         if chapter_name is None or chapter_name.strip() == "":
-            chapter_nm = "Null_Name"  # Better formatting for null names
+            chapter_nm = "Null_Name"
         else:
-            # FIXED: Don't sanitize chapter name - keep it as is to avoid underscores
             chapter_nm = chapter_name.strip()
         
-        # If both are null, add random number for uniqueness
-        if chapter_num == "null" and chapter_nm == "Null_Name":
+        # Generate folder name with proper spacing: Chapter {number}_{name}
+        # Note: Single space after "Chapter", underscore before chapter name
+        if chapter_nm == "Null_Name" and chapter_num == "Null_Null Name":
+            import random
             random_num = random.randint(10000, 99999)
-            return f"{base_name}_Chapter_{chapter_num}_{chapter_nm}_{random_num}"
+            return f"{base_name}_Chapter {chapter_num}_{random_num}"
         
-        return f"{base_name}_Chapter_{chapter_num}_{chapter_nm}"
+        return f"{base_name}_Chapter {chapter_num}_{chapter_nm}"
+
+    @staticmethod
+    def is_project_root_folder(folder_path: str) -> bool:
+        """Check if the folder is the project root (for standalone chapters)"""
+        # Project root folders typically follow pattern: {code}_{book_name}
+        # and don't contain _Part_ or other suffixes
+        return "_Part_" not in folder_path and not any(suffix in folder_path for suffix in ["_prologue", "_index", "_epilogue"])
     
     @staticmethod
-    def generate_unique_chapter_id(base_name: str, part_number: int) -> str:
-        """Generate unique identifier for chapter"""
+    def generate_unique_chapter_id(base_name: str, parent_identifier: str, is_standalone: bool = False) -> str:
+        """Generate unique identifier for chapter - works with numbered, custom parts, and standalone"""
         from core.session_manager import SessionManager
         counter = SessionManager.get('unique_chapter_counter', 0) + 1
         SessionManager.set('unique_chapter_counter', counter)
-        return f"{base_name}_part_{part_number}_chapter_{counter}"
+        
+        if is_standalone:
+            return f"{base_name}_standalone_chapter_{counter}"
+        else:
+            return f"{base_name}_part_{parent_identifier}_chapter_{counter}"
+    
+    @staticmethod
+    def create_standalone_chapter_folders(project_path: Path, base_name: str, chapters: List[Dict]) -> List[str]:
+        """
+        Create standalone chapter folders directly under project root
+        
+        Args:
+            project_path: Main project path
+            base_name: Base project name
+            chapters: List of chapter dictionaries with 'number' and 'name'
+            
+        Returns:
+            List of created chapter folder paths
+        """
+        from core.session_manager import SessionManager
+        
+        created_chapters = []
+        
+        try:
+            # Ensure project folder exists
+            project_path.mkdir(exist_ok=True)
+            folder_metadata = SessionManager.get('folder_metadata', {})
+            
+            for chapter in chapters:
+                # Generate unique ID for metadata tracking
+                chapter_id = ChapterManager.generate_unique_chapter_id(
+                    base_name, "standalone", is_standalone=True
+                )
+                
+                # Generate proper chapter folder name using base project name
+                chapter_folder_name = ChapterManager.generate_chapter_folder_name(
+                    base_name,  # Use base_name directly for standalone chapters
+                    chapter.get('number'),
+                    chapter.get('name')
+                )
+                
+                # Create actual folder with the complete naming convention
+                chapter_path = project_path / chapter_folder_name
+                chapter_path.mkdir(exist_ok=True)
+                
+                # Store metadata mapping
+                display_name = f"Standalone → {chapter_folder_name}"
+                folder_metadata[chapter_id] = {
+                    'display_name': display_name,
+                    'actual_path': str(chapter_path.absolute()),
+                    'type': 'standalone_chapter',
+                    'parent_type': 'standalone',
+                    'chapter_number': chapter.get('number', ''),
+                    'chapter_name': chapter.get('name', ''),
+                    'naming_base': chapter_folder_name,  # Full name for file naming
+                    'folder_name': chapter_folder_name   # Complete folder name
+                }
+                
+                created_chapters.append(str(chapter_path.absolute()))
+            
+            SessionManager.set('folder_metadata', folder_metadata)
+            return created_chapters
+        except Exception as e:
+            st.error(f"Error creating standalone chapter folders: {str(e)}")
+            return []
+    
+    @staticmethod
+    def create_chapter_folders_for_custom_part(project_path: Path, base_name: str, 
+                                            part_name: str, chapters: List[Dict]) -> List[str]:
+        """
+        Create chapter folders within a custom named part
+        
+        Args:
+            project_path: Main project path
+            base_name: Base project name
+            part_name: Custom part name (e.g., "India", "Iran")
+            chapters: List of chapter dictionaries with 'number' and 'name'
+            
+        Returns:
+            List of created chapter folder paths
+        """
+        from core.session_manager import SessionManager
+        
+        created_chapters = []
+        part_folder_name = f"{base_name}_{part_name}"
+        part_path = project_path / part_folder_name
+        
+        try:
+            # Ensure part folder exists
+            part_path.mkdir(exist_ok=True)
+            folder_metadata = SessionManager.get('folder_metadata', {})
+            
+            for chapter in chapters:
+                # Generate unique ID for metadata tracking
+                chapter_id = ChapterManager.generate_unique_chapter_id(base_name, part_name.lower())
+                
+                # Generate proper chapter folder name with full parent prefix
+                chapter_folder_name = ChapterManager.generate_chapter_folder_name(
+                    part_folder_name,
+                    chapter.get('number'),
+                    chapter.get('name')
+                )
+                
+                # Create actual folder with the complete naming convention
+                chapter_path = part_path / chapter_folder_name
+                chapter_path.mkdir(exist_ok=True)
+                
+                # Store metadata mapping
+                display_name = f"{part_name} → {chapter_folder_name}"
+                folder_metadata[chapter_id] = {
+                    'display_name': display_name,
+                    'actual_path': str(chapter_path.absolute()),
+                    'type': 'chapter',
+                    'parent_part_name': part_name,
+                    'parent_part_type': 'custom',
+                    'chapter_number': chapter.get('number', ''),
+                    'chapter_name': chapter.get('name', ''),
+                    'naming_base': chapter_folder_name,  # Full name for file naming
+                    'folder_name': chapter_folder_name   # Complete folder name
+                }
+                
+                created_chapters.append(str(chapter_path.absolute()))
+            
+            SessionManager.set('folder_metadata', folder_metadata)
+            return created_chapters
+        except Exception as e:
+            st.error(f"Error creating chapter folders for {part_name}: {str(e)}")
+            return []
     
     @staticmethod
     def create_chapter_folders(project_path: Path, base_name: str, part_number: int, 
                              chapters: List[Dict]) -> List[str]:
         """
         Create chapter folders within a part with proper naming convention
+        KEPT FOR BACKWARD COMPATIBILITY - use create_chapter_folders_for_custom_part for new implementations
         
         Args:
             project_path: Main project path
@@ -265,7 +825,7 @@ class ChapterManager:
             
             for chapter in chapters:
                 # Generate unique ID for metadata tracking
-                chapter_id = ChapterManager.generate_unique_chapter_id(base_name, part_number)
+                chapter_id = ChapterManager.generate_unique_chapter_id(base_name, str(part_number))
                 
                 # Generate proper chapter folder name with full parent prefix
                 chapter_folder_name = ChapterManager.generate_chapter_folder_name(
@@ -285,6 +845,7 @@ class ChapterManager:
                     'actual_path': str(chapter_path.absolute()),
                     'type': 'chapter',
                     'parent_part': part_number,
+                    'parent_part_type': 'numbered',
                     'chapter_number': chapter.get('number', ''),
                     'chapter_name': chapter.get('name', ''),
                     'naming_base': chapter_folder_name,  # Full name for file naming
@@ -348,14 +909,20 @@ class ChapterManager:
             return False
     
     @staticmethod
-    def get_chapters_preview(base_name: str, part_number: int, chapters: List[Dict]) -> List[str]:
-        """Generate preview of chapter folder names"""
+    def get_chapters_preview(base_name: str, parent_identifier: str, chapters: List[Dict], is_custom_part: bool = False, is_standalone: bool = False) -> List[str]:
+        """Generate preview of chapter folder names - supports numbered, custom parts, and standalone chapters"""
         preview = []
-        part_folder_name = f"{base_name}_part_{part_number}"
+        
+        if is_standalone:
+            parent_folder_name = base_name  # Use base name directly for standalone
+        elif is_custom_part:
+            parent_folder_name = f"{base_name}_{parent_identifier}"
+        else:
+            parent_folder_name = f"{base_name}_part_{parent_identifier}"
         
         for chapter in chapters:
             chapter_folder_name = ChapterManager.generate_chapter_folder_name(
-                part_folder_name,
+                parent_folder_name,
                 chapter.get('number'),
                 chapter.get('name')
             )
@@ -374,11 +941,26 @@ class ChapterManager:
         if not chapters:
             return False, "No chapters defined"
         
-        # Check for duplicate chapter numbers (if provided and not null)
-        numbers = [ch.get('number') for ch in chapters 
-                  if ch.get('number') and ch.get('number') != '' and ch.get('number') != 'null']
-        if len(numbers) != len(set(numbers)):
-            return False, "Duplicate chapter numbers found"
+        # Check for duplicate chapter numbers, but skip NULL sequence chapters
+        # since they're supposed to have the same "NULL" number
+        numbers_to_check = []
+        for ch in chapters:
+            chapter_number = ch.get('number')
+            is_null_sequence = ch.get('is_null_sequence', False)
+            
+            # Only check for duplicates if:
+            # 1. It's not a NULL sequence chapter
+            # 2. The number is not empty/null
+            # 3. The number is not literally "NULL"
+            if (not is_null_sequence and 
+                chapter_number and 
+                chapter_number.strip() != '' and 
+                not chapter_number.upper().startswith('NULL')):
+                numbers_to_check.append(chapter_number)
+        
+        # Check for duplicates only among non-NULL sequence chapters
+        if len(numbers_to_check) != len(set(numbers_to_check)):
+            return False, "Duplicate chapter numbers found (excluding NULL sequence chapters)"
         
         return True, ""
 
@@ -398,7 +980,7 @@ class PDFHandler:
     @staticmethod
     def load_pdf_info(uploaded_file) -> Tuple[Optional[PyPDF2.PdfReader], int]:
         """
-        Load PDF and extract basic information with memory optimization
+        Load PDF and extract basic information with optimized memory handling
         
         Args:
             uploaded_file: Streamlit uploaded file object
@@ -407,42 +989,65 @@ class PDFHandler:
             Tuple of (PDF reader object, total pages)
         """
         try:
-            # For large files, avoid storing full content in session
-            # Instead, store file info and reload when needed
+            # Always read and store the full content for reliability
+            # Reset file pointer to beginning
+            uploaded_file.seek(0)
             file_content = uploaded_file.read()
+            
+            # Validate we actually got content
+            if not file_content or len(file_content) == 0:
+                st.error("PDF file appears to be empty or corrupted")
+                return None, 0
+            
             pdf_reader = PyPDF2.PdfReader(BytesIO(file_content))
             total_pages = len(pdf_reader.pages)
             
-            # Store file info instead of full content for large files
+            # Store file content in session state for ALL files
+            # For memory management, we'll handle this differently
             file_size_mb = len(file_content) / (1024 * 1024)
-            if file_size_mb > 100:  # Only store content for files smaller than 100MB
-                st.session_state.pdf_file_name = uploaded_file.name
+            
+            if file_size_mb > 100:
+                st.info(f"Large PDF detected ({file_size_mb:.1f}MB). Processing may take longer.")
+                # Still store content but warn about memory usage
+                st.session_state.pdf_content = file_content
                 st.session_state.pdf_large_file = True
-                st.info(f"Large PDF detected ({file_size_mb:.1f}MB). Using optimized memory handling.")
             else:
                 st.session_state.pdf_content = file_content
                 st.session_state.pdf_large_file = False
             
+            # Also store file name for reference
+            st.session_state.pdf_file_name = uploaded_file.name
+            
             return pdf_reader, total_pages
+            
         except Exception as e:
             st.error(f"Error reading PDF: {str(e)}")
             return None, 0
     
     @staticmethod
     def get_pdf_reader() -> Optional[PyPDF2.PdfReader]:
-        """Get PDF reader from stored content or reload from file"""
+        """Get PDF reader from stored content"""
         try:
-            # Check if we have content stored (for smaller files)
+            # Always try to get from stored content first
             pdf_content = st.session_state.get('pdf_content')
             if pdf_content:
                 return PyPDF2.PdfReader(BytesIO(pdf_content))
             
-            # For large files, get from the uploaded file directly
+            # Fallback: try to get from uploaded file (may not work for large files)
             pdf_file = st.session_state.get('pdf_file')
             if pdf_file:
-                return PyPDF2.PdfReader(BytesIO(pdf_file.read()))
+                try:
+                    pdf_file.seek(0)
+                    file_content = pdf_file.read()
+                    if file_content:
+                        return PyPDF2.PdfReader(BytesIO(file_content))
+                except:
+                    pass
             
+            # If all else fails, show helpful error
+            st.error("PDF content not available. Please re-upload your PDF file.")
             return None
+            
         except Exception as e:
             st.error(f"Error accessing PDF: {str(e)}")
             return None
@@ -452,8 +1057,13 @@ class PDFHandler:
         """Validate if uploaded file is a proper PDF"""
         try:
             uploaded_file.seek(0)  # Reset file pointer
-            pdf_reader = PyPDF2.PdfReader(BytesIO(uploaded_file.read()))
+            content = uploaded_file.read()
             uploaded_file.seek(0)  # Reset for future reads
+            
+            if not content or len(content) == 0:
+                return False
+                
+            pdf_reader = PyPDF2.PdfReader(BytesIO(content))
             return len(pdf_reader.pages) > 0
         except:
             return False
@@ -464,18 +1074,9 @@ class PDFExtractor:
     
     @staticmethod
     def extract_pages_to_folder(page_ranges: List[str], destination_folder: str, 
-                              naming_base: str, total_pages: int) -> Tuple[bool, List[str], str]:
+                            naming_base: str, total_pages: int) -> Tuple[bool, List[str], str]:
         """
         Extract specified pages from PDF and save to destination folder with sequential numbering
-        
-        Args:
-            page_ranges: List of page range strings (e.g., ["1-5", "10", "15-20"])
-            destination_folder: Target folder path
-            naming_base: Base name for file naming (should include full hierarchy)
-            total_pages: Total pages in PDF for validation
-            
-        Returns:
-            Tuple of (success, list of created files, error message)
         """
         try:
             # Parse page ranges into individual page numbers
@@ -487,17 +1088,29 @@ class PDFExtractor:
             # Get PDF reader
             pdf_reader = PDFHandler.get_pdf_reader()
             if not pdf_reader:
-                return False, [], "Could not access PDF file"
+                pdf_content = st.session_state.get('pdf_content')
+                if pdf_content:
+                    try:
+                        from io import BytesIO
+                        import PyPDF2
+                        pdf_reader = PyPDF2.PdfReader(BytesIO(pdf_content))
+                    except Exception as e:
+                        return False, [], f"Could not access PDF file: {str(e)}"
+                
+                if not pdf_reader:
+                    return False, [], "Could not access PDF file. Please re-upload your PDF."
+            
+            # Use the destination_folder exactly as provided
+            dest_path = Path(destination_folder)
             
             # Create destination folder if it doesn't exist
-            dest_path = Path(destination_folder)
             dest_path.mkdir(parents=True, exist_ok=True)
             
             created_files = []
             failed_pages = []
             
-            # Extract each page with sequential numbering (starting from 1)
-            for sequential_num, actual_page_num in enumerate(pages_to_extract, 1):
+            # Extract each page
+            for idx, (sequential_num, actual_page_num) in enumerate(enumerate(pages_to_extract, 1)):
                 success, file_path = PDFExtractor.extract_single_page(
                     pdf_reader, actual_page_num, dest_path, naming_base, sequential_num
                 )
@@ -517,22 +1130,13 @@ class PDFExtractor:
             
         except Exception as e:
             return False, [], f"Error extracting pages: {str(e)}"
+
     
     @staticmethod
     def extract_single_page(pdf_reader: PyPDF2.PdfReader, actual_page_num: int, 
-                          dest_path: Path, naming_base: str, sequential_page_num: int = None) -> Tuple[bool, str]:
+                        dest_path: Path, naming_base: str, sequential_page_num: int = None) -> Tuple[bool, str]:
         """
-        Extract a single page from PDF with proper naming convention and sequential numbering
-        
-        Args:
-            pdf_reader: PDF reader object
-            actual_page_num: Actual page number in PDF to extract (1-indexed)
-            dest_path: Destination folder path
-            naming_base: Complete naming base including parent folder hierarchy
-            sequential_page_num: Sequential page number for file naming (starts from 1)
-            
-        Returns:
-            Tuple of (success, file_path)
+        Extract a single page from PDF with proper naming convention and correct spacing
         """
         try:
             # Validate page number
@@ -541,21 +1145,29 @@ class PDFExtractor:
             
             # Create new PDF with single page
             pdf_writer = PyPDF2.PdfWriter()
-            pdf_writer.add_page(pdf_reader.pages[actual_page_num - 1])  # Convert to 0-indexed
+            pdf_writer.add_page(pdf_reader.pages[actual_page_num - 1])
             
             # Use sequential numbering if provided, otherwise use actual page number
             page_num_for_filename = sequential_page_num if sequential_page_num is not None else actual_page_num
             
-            # Generate file name using the complete naming base with sequential numbering
-            safe_naming_base = PDFExtractor.sanitize_filename(naming_base)
-            file_name = f"{safe_naming_base}_Page_{page_num_for_filename}.pdf"
+            # Apply font formatting to the page number text
+            import streamlit as st
+            from core.text_formatter import TextFormatter
+            font_case = st.session_state.get('selected_font_case', 'First Capital (Title Case)')
+            formatted_page_num = TextFormatter.format_text(str(page_num_for_filename), font_case)
+            
+            # Generate file name with proper spacing - KEEP THE SPACE
+            # Don't sanitize the naming_base if it already has proper formatting
+            file_name = f"{naming_base}_Page {formatted_page_num}.pdf"
+            
+            # Use the exact dest_path provided
             file_path = dest_path / file_name
             
             # Write PDF file
             with open(file_path, 'wb') as output_file:
                 pdf_writer.write(output_file)
             
-            return True, str(file_path)
+            return True, str(file_path.absolute())
             
         except Exception as e:
             st.error(f"Error extracting page {actual_page_num}: {str(e)}")
@@ -672,6 +1284,8 @@ class PDFExtractor:
 
 # ===== File: src/core/session_manager.py =====
 
+# core/session_manager.py - Modified to avoid circular imports
+
 import streamlit as st
 from typing import Dict, Any
 
@@ -685,23 +1299,43 @@ class SessionManager:
             'project_config': {},
             'pdf_uploaded': False,
             'pdf_file': None,
-            'pdf_content': None,  # Store PDF content to avoid re-reading
+            'pdf_content': None,
             'total_pages': 0,
             'folder_structure_created': False,
             'created_folders': [],
-            'chapters_config': {},  # {part_1: [chapters], part_2: [chapters]}
+            'chapters_config': {},
+            'standalone_chapters': [],
             'current_step': 1,
             'chapters_created': False,
-            'page_assignments': {},  # Track page assignments
-            'extraction_history': [],  # Track completed extractions
-            'folder_metadata': {},  # {folder_id: {display_name, actual_path, type}}
-            'unique_chapter_counter': 0,  # For ensuring unique chapter identifiers
-            'numbering_systems': {},  # {Part_1: numbering_system, Part_2: numbering_system}
+            'page_assignments': {},
+            'extraction_history': [],
+            'folder_metadata': {},
+            'unique_chapter_counter': 0,
+            'numbering_systems': {},
+            'chapter_suffixes': {},
+            'custom_parts': {},
+            'font_case_selected': True,
+            'selected_font_case': 'First Capital (Title Case)',
+            'project_destination_folder': '',  # NEW: For project structure location
+            'project_destination_selected': False,  # NEW: Track if project destination is set
         }
         
         for key, value in defaults.items():
             if key not in st.session_state:
                 st.session_state[key] = value
+
+    @staticmethod
+    def get_chapter_suffix(context_key: str) -> str:
+        """Get chapter suffix for a specific context"""
+        chapter_suffixes = SessionManager.get('chapter_suffixes', {})
+        return chapter_suffixes.get(context_key, "")
+
+    @staticmethod
+    def set_chapter_suffix(context_key: str, suffix: str):
+        """Set chapter suffix for a specific context"""
+        chapter_suffixes = SessionManager.get('chapter_suffixes', {})
+        chapter_suffixes[context_key] = suffix
+        SessionManager.set('chapter_suffixes', chapter_suffixes)
     
     @staticmethod
     def get(key: str, default=None):
@@ -719,6 +1353,130 @@ class SessionManager:
         if 'project_config' not in st.session_state:
             st.session_state.project_config = {}
         st.session_state.project_config.update(updates)
+    
+    @staticmethod
+    def get_font_case() -> str:
+        """Get current font case setting"""
+        return st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+    
+    @staticmethod
+    def set_font_case(font_case: str):
+        """Set font case and mark as selected"""
+        st.session_state['selected_font_case'] = font_case
+        st.session_state['font_case_selected'] = True
+
+    @staticmethod
+    def get_default_destination() -> str:
+        """Get default destination folder"""
+        return st.session_state.get('default_destination_folder', '')
+
+    @staticmethod
+    def set_default_destination(folder_path: str):
+        """Set default destination folder"""
+        st.session_state['default_destination_folder'] = folder_path
+        st.session_state['destination_folder_selected'] = True
+
+    @staticmethod
+    def get_project_destination() -> str:
+        """Get project destination folder"""
+        return st.session_state.get('project_destination_folder', '')
+
+    @staticmethod
+    def set_project_destination(folder_path: str):
+        """Set project destination folder"""
+        st.session_state['project_destination_folder'] = folder_path
+        st.session_state['project_destination_selected'] = True
+
+
+# ===== File: src/core/text_formatter.py =====
+
+# core/text_formatter.py - Text formatting utilities
+
+from enum import Enum
+from typing import Any, Dict, Optional
+
+class FontCase(Enum):
+    """Font case formatting options"""
+    ALL_CAPS = "All Caps (UPPERCASE)"
+    ALL_SMALL = "All Small (lowercase)" 
+    FIRST_CAPITAL = "First Capital (Sentence case)"
+
+class TextFormatter:
+    """Centralized text formatting based on selected font case"""
+    
+    @staticmethod
+    def format_text(text: str, font_case: str) -> str:
+        """
+        Format text according to the selected font case
+        
+        Args:
+            text: Original text to format
+            font_case: Font case option from FontCase enum
+            
+        Returns:
+            Formatted text
+        """
+        if not text or not isinstance(text, str):
+            return text
+        
+        text = str(text).strip()
+        
+        # Debug: Check what font_case value we're getting
+        if font_case == FontCase.ALL_CAPS.value or font_case == "All Caps (UPPERCASE)":
+            return text.upper()
+        elif font_case == FontCase.ALL_SMALL.value or font_case == "All Small (lowercase)":
+            return text.lower()
+        elif font_case == FontCase.FIRST_CAPITAL.value or font_case == "First Capital (Sentence case)":
+            return text.capitalize()
+        else:
+            # Default to original text if unknown format
+            return text
+    
+    @staticmethod
+    def get_font_case_options() -> list:
+        """Get all available font case options"""
+        return [case.value for case in FontCase]
+    
+    @staticmethod
+    def format_project_code(code: str, font_case: str) -> str:
+        """Format project code"""
+        return TextFormatter.format_text(code, font_case)
+    
+    @staticmethod
+    def format_book_name(book_name: str, font_case: str) -> str:
+        """Format book name"""
+        return TextFormatter.format_text(book_name, font_case)
+    
+    @staticmethod
+    def format_part_name(part_name: str, font_case: str) -> str:
+        """Format part name"""
+        return TextFormatter.format_text(part_name, font_case)
+    
+    @staticmethod
+    def format_chapter_name(chapter_name: str, font_case: str) -> str:
+        """Format chapter name"""
+        return TextFormatter.format_text(chapter_name, font_case)
+    
+    @staticmethod
+    def format_chapter_number(chapter_number: str, font_case: str) -> str:
+        """Format chapter number"""
+        return TextFormatter.format_text(chapter_number, font_case)
+    
+    @staticmethod
+    def format_folder_name(folder_name: str, font_case: str) -> str:
+        """Format folder name"""
+        return TextFormatter.format_text(folder_name, font_case)
+    
+    @staticmethod
+    def format_custom_folder_name(custom_name: str, font_case: str) -> str:
+        """Format custom folder name"""
+        return TextFormatter.format_text(custom_name, font_case)
+    
+    @staticmethod
+    def get_current_font_case():
+        """Get current font case from session - using lazy import"""
+        import streamlit as st
+        return st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
 
 
 # ===== File: src/ui/__init__.py =====
@@ -736,6 +1494,7 @@ from ui.progress_tracker import render_progress_tracker
 from ui.chapter_management import render_chapter_management_page
 from ui.page_assignment import render_page_assignment_page
 from ui.custom_folder_management import render_custom_folder_management_page
+from ui.font_selector import render_font_case_selector  # NEW IMPORT
 from core.session_manager import SessionManager
 
 def setup_page_config():
@@ -788,7 +1547,14 @@ def setup_page_config():
 def render_main_app():
     """Render the main application layout"""
     st.title("📚 PDF Page Organizer")
+
+    # Check if folder browser should be shown
+    from ui.folder_selector import render_folder_browser_in_main
     
+    if render_folder_browser_in_main():
+        return  # Show only folder browser when active
+    
+    # Remove the font case check - go directly to tabs
     # Navigation tabs - Added Custom Folders tab
     tab1, tab2, tab3, tab4 = st.tabs([
         "📋 Project Setup", 
@@ -818,12 +1584,17 @@ def render_project_setup_tab():
 
 # ===== File: src/ui/chapter_management.py =====
 
+# ui/chapter_management.py - Optimized with centralized utilities
+
+from datetime import datetime
 import streamlit as st
 from typing import Dict, List
 from core.session_manager import SessionManager
 from core.folder_manager import ChapterManager, FolderManager
+from core.chapter_utils import ChapterUtils, ChapterConfigManager, PartManager
 from pathlib import Path
 import shutil
+import os
 
 def render_chapter_management_page():
     """Render the chapter management page"""
@@ -836,258 +1607,627 @@ def render_chapter_management_page():
     config = SessionManager.get('project_config', {})
     
     st.subheader("📂 Chapter Management")
-    st.markdown("Configure chapters within each part of your book.")
+    st.markdown("Configure chapters within each custom part of your book, or create standalone chapters.")
     
-    # Add option to create individual parts
-    st.markdown("### 🔧 Additional Options")
+    # Check for operation completion messages
+    if st.session_state.get('part_operation_completed'):
+        operation_info = st.session_state.get('part_operation_info', {})
+        if operation_info.get('operation') == 'add':
+            st.success(f"✅ Successfully created part '{operation_info.get('part_name')}'!")
+            st.info(f"📂 Location: {operation_info.get('location', 'Unknown')}")
+        elif operation_info.get('operation') == 'delete':
+            st.success(f"✅ Successfully deleted part '{operation_info.get('part_name')}' and all its contents!")
+        
+        # Clear the flags
+        st.session_state['part_operation_completed'] = False
+        st.session_state['part_operation_info'] = {}
+    
+    # Standalone Chapters Section
+    st.markdown("### 📖 Standalone Chapters")
+    render_standalone_chapters_section(config)
+    
+    st.markdown("---")
+    
+    # Part Management Section
+    st.markdown("### 🔧 Part Management")
+    render_part_management_section(config)
+    
+    # Chapter configuration for parts
+    updated_parts = get_existing_custom_parts(config)
+    
+    if not updated_parts:
+        st.info("📝 No custom parts configured. You can add individual parts above or configure parts in Project Setup.")
+    else:
+        st.markdown("---")
+        part_names = [part['name'] for part in updated_parts]
+        st.info(f"Found {len(updated_parts)} existing parts: {', '.join(part_names)}")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            render_chapter_configuration(config, updated_parts)
+        
+        with col2:
+            render_chapter_preview(config)
+
+
+def render_standalone_chapters_section(config: Dict):
+    """Render standalone chapters configuration section with optimized state management"""
+    
+    st.markdown("Create chapters directly under the project root (not inside any part).")
+    
+    context_key = 'standalone'
+    
+    # Get current state
+    current_chapters = ChapterConfigManager.get_chapters_for_context(context_key)
+    current_count = len(current_chapters)
+    current_system = ChapterConfigManager.get_current_numbering_system(context_key)
+    current_suffix = SessionManager.get_chapter_suffix(context_key)
+    
+    # Number of standalone chapters input
+    target_count = st.number_input(
+        "Number of standalone chapters",
+        min_value=0,
+        value=current_count,
+        step=1,
+        key="standalone_chapters_count",
+        help="Enter number of chapters to create directly under project root"
+    )
+    
+    # Numbering system selector with suffix
+    if target_count > 0:
+        new_system, new_suffix = ChapterUtils.render_numbering_system_selector(
+            context_key,
+            current_system,
+            "Choose how standalone chapters should be numbered",
+            current_suffix
+        )
+        
+        # Handle system or suffix change with immediate update
+        system_changed = new_system != current_system
+        suffix_changed = new_suffix != current_suffix
+        
+        if system_changed or suffix_changed:
+            if system_changed:
+                ChapterConfigManager.update_numbering_system(context_key, new_system)
+            if suffix_changed:
+                SessionManager.set_chapter_suffix(context_key, new_suffix)
+                # Update existing chapters with new suffix
+                if current_chapters:
+                    updated_chapters = ChapterUtils.update_chapters_with_numbering(
+                        current_chapters, new_system, new_suffix
+                    )
+                    SessionManager.set('standalone_chapters', updated_chapters)
+            
+            current_system = new_system
+            current_suffix = new_suffix
+            # Force rerun to update UI
+            st.rerun()
+    
+    # Handle count change
+    if target_count != current_count:
+        current_chapters = ChapterConfigManager.update_chapter_count(
+            context_key, target_count, current_chapters, current_system, current_suffix
+        )
+        st.rerun()
+    
+    # Render chapter details
+    if target_count > 0:
+        render_chapter_details_optimized(context_key, current_chapters, config, is_standalone=True)
+        
+        # Action buttons
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🏗️ Create Standalone Chapters", key="create_standalone_chapters"):
+                create_standalone_chapters(config, current_chapters)
+        
+        with col2:
+            if SessionManager.get('chapters_created') and any(current_chapters):
+                if st.button("🔄 Update Standalone Chapters", key="update_standalone_chapters"):
+                    update_existing_standalone_chapters(config, current_chapters)
+
+
+def add_individual_custom_part(config: Dict, part_name: str):
+    """Add an individual custom part folder with proper font formatting"""
+    try:
+        from core.text_formatter import TextFormatter
+        from core.folder_manager import FolderManager
+        from pathlib import Path
+        import shutil
+        
+        # Get font case and format the part name
+        font_case = SessionManager.get_font_case()
+        formatted_part_name = TextFormatter.format_part_name(part_name, font_case)
+        
+        safe_code = FolderManager.sanitize_name(config['code'])
+        book_name = config['book_name']
+        base_name = f"{safe_code}_{book_name}"
+        
+        # Use project destination instead of current directory
+        project_destination = SessionManager.get_project_destination()
+        if project_destination and os.path.exists(project_destination):
+            base_path = Path(project_destination)
+        else:
+            base_path = Path.cwd()
+        
+        project_path = base_path / base_name
+        
+        if not project_path.exists():
+            project_path.mkdir(parents=True, exist_ok=True)
+            st.info(f"Created project directory: {project_path.absolute()}")
+        
+        # Create part folder with formatted name
+        part_folder = project_path / f"{base_name}_{formatted_part_name}"
+        
+        if part_folder.exists():
+            st.error(f"Part '{formatted_part_name}' already exists!")
+            return False
+        
+        part_folder.mkdir(exist_ok=True)
+        
+        # Rest remains the same...
+        custom_parts = SessionManager.get('custom_parts', {})
+        base_id = formatted_part_name.lower().replace(' ', '_').replace('-', '_')
+        part_id = f"part_{len(custom_parts) + 1}_{base_id}"
+        
+        # Ensure unique ID
+        counter = 1
+        original_id = part_id
+        while part_id in custom_parts:
+            part_id = f"{original_id}_{counter}"
+            counter += 1
+        
+        custom_parts[part_id] = {
+            'name': formatted_part_name,
+            'display_name': formatted_part_name,
+            'original_name': part_name,
+            'created_timestamp': datetime.now().isoformat()
+        }
+        
+        SessionManager.set('custom_parts', custom_parts)
+        
+        # Update created folders list
+        current_folders = SessionManager.get('created_folders', [])
+        new_part_path = str(part_folder.absolute())
+        if new_part_path not in current_folders:
+            current_folders.append(new_part_path)
+            SessionManager.set('created_folders', current_folders)
+        
+        # Set operation completion flags
+        st.session_state['part_operation_completed'] = True
+        st.session_state['part_operation_info'] = {
+            'operation': 'add',
+            'part_name': formatted_part_name,
+            'location': str(part_folder.absolute())
+        }
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"Error creating part: {str(e)}")
+        return False
+
+
+def render_part_management_section(config: Dict):
+    """Render part management section with optimized operations and font formatting"""
+    
     col_opt1, col_opt2, col_opt3, col_opt4 = st.columns(4)
     
-    # Get actual parts that exist (including individually created ones)
-    actual_parts = get_existing_parts(config)
-    max_part_num = max(actual_parts) if actual_parts else 0
-    
-    with col_opt1:
-        if st.button("➕ Add Individual Part", type="secondary"):
-            add_individual_part(config)
-            st.rerun()  # Force refresh after adding part
+    # Show current font formatting
+    font_case = SessionManager.get_font_case()
+    st.caption(f"Font formatting: {font_case}")
     
     with col_opt2:
-        individual_part_num = st.number_input(
-            "Part Number to Add",
-            min_value=1,
-            value=max_part_num + 1,
-            step=1,
-            key="individual_part_input",
-            help="Specify which part number to create individually"
+        part_name_input = st.text_input(
+            "Part Name to Add",
+            value="",
+            placeholder="e.g., Mathematics, Science",
+            key="individual_part_name_input",
+            help=f"Enter the custom name for the new part (will be formatted as: {font_case})"
         )
     
+    with col_opt1:
+        if st.button("➕ Add Individual Part", type="secondary", key="add_part_btn"):
+            if part_name_input.strip():
+                # Use the improved function with font formatting
+                success = add_individual_custom_part(config, part_name_input.strip())
+                if success:
+                    st.rerun()
+                else:
+                    from core.text_formatter import TextFormatter
+                    formatted_name = TextFormatter.format_part_name(part_name_input.strip(), font_case)
+                    st.error(f"Part '{formatted_name}' already exists!")
+            else:
+                st.error("Please enter a part name first")
+    
+    # Delete part functionality
+    current_parts = get_existing_custom_parts(config)
+    
     with col_opt3:
-        # Delete part option
-        if actual_parts:
+        if current_parts:
             part_to_delete = st.selectbox(
                 "Select Part to Delete",
-                actual_parts,
+                [part['name'] for part in current_parts],
                 key="part_to_delete_select",
                 help="Choose which part to delete (this will delete all contents)"
             )
-            
+    
     with col_opt4:
-        if actual_parts:
+        if current_parts:
             if st.button("🗑️ Delete Selected Part", type="secondary", key="delete_part_btn"):
                 part_to_delete = st.session_state.get("part_to_delete_select")
                 if part_to_delete:
-                    delete_individual_part(config, part_to_delete)
+                    delete_individual_custom_part(config, part_to_delete)
                     st.rerun()
+
+
+def render_chapter_details_optimized(context_key: str, chapters: List[Dict], config: Dict, is_standalone: bool = False):
+    """Optimized chapter details rendering with proper state management and font formatting"""
     
-    if not actual_parts:
-        st.info("📝 No parts configured. You can add individual parts above or configure parts in Project Setup.")
+    if is_standalone:
+        st.markdown("**Configure standalone chapters:**")
+    else:
+        st.markdown(f"**Configure chapters for {context_key}:**")
+    
+    # Lazy import for font formatting
+    from core.text_formatter import TextFormatter
+    font_case = st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+    
+    safe_code = FolderManager.sanitize_name(config['code'])
+    book_name = config['book_name']
+    base_name = f"{safe_code}_{book_name}"
+    
+    updated_chapters = []
+    
+    for i, chapter in enumerate(chapters):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # For NULL sequence, show "NULL" as read-only
+            if chapter.get('is_null_sequence'):
+                st.text_input(
+                    "Number",
+                    value=chapter.get('number', ''),
+                    key=f"{context_key}_chapter_num_{i}",
+                    disabled=True,
+                    help="NULL sequence number (auto-generated)"
+                )
+                chapter_number = chapter.get('number', '')
+            else:
+                # Use the current chapter number as value
+                chapter_number = st.text_input(
+                    "Number",
+                    value=chapter.get('number', ''),
+                    placeholder=f"e.g., {chapter.get('number', '')}",
+                    key=f"{context_key}_chapter_num_{i}",
+                    help="Chapter number (auto-generated based on system)"
+                )
+        
+        with col2:
+            # For NULL sequence, show auto-generated name as read-only
+            if chapter.get('is_null_sequence'):
+                st.text_input(
+                    "Name",
+                    value=chapter.get('name', ''),
+                    key=f"{context_key}_chapter_name_{i}",
+                    disabled=True,
+                    help="NULL sequence name (auto-generated: Name, Name (1), Name (2)...)"
+                )
+                chapter_name = chapter.get('name', '')
+            else:
+                chapter_name = st.text_input(
+                    "Name",
+                    value=chapter.get('name', ''),
+                    placeholder="e.g., Introduction, Overview (leave empty for 'Null Name')",
+                    key=f"{context_key}_chapter_name_{i}",
+                    help="Leave empty to use 'Null Name' in folder naming"
+                )
+        
+        # Apply font formatting to the inputs before storing (only for non-NULL sequence)
+        if not chapter.get('is_null_sequence'):
+            formatted_chapter_number = TextFormatter.format_chapter_number(chapter_number, font_case) if chapter_number else ''
+            formatted_chapter_name = TextFormatter.format_chapter_name(chapter_name, font_case) if chapter_name else ''
+        else:
+            # Use the already formatted values from NULL sequence
+            formatted_chapter_number = chapter_number
+            formatted_chapter_name = chapter_name
+        
+        updated_chapters.append({
+            'number': formatted_chapter_number,
+            'name': formatted_chapter_name,
+            'original_number': chapter_number if not chapter.get('is_null_sequence') else '',
+            'original_name': chapter_name if not chapter.get('is_null_sequence') else '',
+            'is_null_sequence': chapter.get('is_null_sequence', False)
+        })
+        
+        # Show preview of folder name with formatting
+        if is_standalone:
+            preview_name = ChapterManager.generate_chapter_folder_name(
+                base_name,
+                formatted_chapter_number or None,
+                formatted_chapter_name or None
+            )
+        else:
+            preview_name = ChapterManager.generate_chapter_folder_name(
+                f"{base_name}_{context_key}",
+                formatted_chapter_number or None,
+                formatted_chapter_name or None
+            )
+        
+        st.caption(f"📁 Folder: `{preview_name}`")
+        
+        if i < len(chapters) - 1:
+            st.markdown("---")
+    
+    # Update session state
+    if is_standalone:
+        SessionManager.set('standalone_chapters', updated_chapters)
+    else:
+        chapters_config = SessionManager.get('chapters_config', {})
+        chapters_config[context_key] = updated_chapters
+        SessionManager.set('chapters_config', chapters_config)
+
+
+def render_chapter_configuration(config: Dict, existing_parts: List[Dict]):
+    """Render chapter configuration interface for custom parts"""
+    
+    for part_info in existing_parts:
+        part_name = part_info['name']
+        with st.expander(f"📖 {part_name} Chapters", expanded=part_info == existing_parts[0] if existing_parts else False):
+            render_part_chapters_optimized(part_name, config)
+    
+    # Create all chapters button
+    chapters_config = SessionManager.get('chapters_config', {})
+    if any(chapters_config.values()):
+        if st.button("🏗️ Create All Chapters", type="primary"):
+            create_all_chapters(config, chapters_config)
+
+def render_part_chapters_optimized(part_name: str, config: Dict):
+    """Optimized part chapters rendering"""
+    
+    context_key = part_name
+    
+    # Get current state
+    current_chapters = ChapterConfigManager.get_chapters_for_context(context_key)
+    current_count = len(current_chapters)
+    current_system = ChapterConfigManager.get_current_numbering_system(context_key)
+    current_suffix = SessionManager.get_chapter_suffix(context_key)
+    
+    # Number of chapters input
+    target_count = st.number_input(
+        f"Number of chapters in {part_name}",
+        min_value=0,
+        value=current_count,
+        step=1,
+        key=f"chapters_count_{part_name}",
+        help="Enter any number of chapters (no limit)"
+    )
+    
+    # Numbering system selector with suffix
+    if target_count > 0:
+        new_system, new_suffix = ChapterUtils.render_numbering_system_selector(
+            f"part_{context_key}",
+            current_system,
+            f"Choose how chapters should be numbered for {part_name}",
+            current_suffix
+        )
+        
+        # Handle system or suffix change
+        system_changed = new_system != current_system
+        suffix_changed = new_suffix != current_suffix
+        
+        if system_changed or suffix_changed:
+            if system_changed:
+                ChapterConfigManager.update_numbering_system(context_key, new_system)
+            if suffix_changed:
+                SessionManager.set_chapter_suffix(context_key, new_suffix)
+                # Update existing chapters with new suffix
+                if current_chapters:
+                    updated_chapters = ChapterUtils.update_chapters_with_numbering(
+                        current_chapters, new_system, new_suffix
+                    )
+                    chapters_config = SessionManager.get('chapters_config', {})
+                    chapters_config[context_key] = updated_chapters
+                    SessionManager.set('chapters_config', chapters_config)
+            
+            st.rerun()
+    
+    # Handle count change
+    if target_count != current_count:
+        current_chapters = ChapterConfigManager.update_chapter_count(
+            context_key, target_count, current_chapters, current_system, current_suffix
+        )
+        st.rerun()
+    
+    # Render chapter details
+    if target_count > 0:
+        render_chapter_details_optimized(context_key, current_chapters, config, is_standalone=False)
+        
+        # Action buttons
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button(f"🏗️ Create {part_name} Chapters", key=f"create_part_{part_name}"):
+                create_chapters_for_custom_part(config, part_name, current_chapters)
+        
+        with col2:
+            if SessionManager.get('chapters_created') and any(current_chapters):
+                if st.button(f"🔄 Update {part_name} Chapters", key=f"update_part_{part_name}"):
+                    update_existing_chapters_for_part(config, part_name, current_chapters)
+
+def render_chapter_preview(config: Dict):
+    """Render chapter structure preview"""
+    st.subheader("📋 Structure Preview")
+    
+    chapters_config = SessionManager.get('chapters_config', {})
+    standalone_chapters = SessionManager.get('standalone_chapters', [])
+    
+    if not any(chapters_config.values()) and not standalone_chapters:
+        st.info("Configure chapters to see preview")
         return
     
-    st.markdown("---")
-    st.info(f"Found {len(actual_parts)} existing parts: {', '.join(map(str, sorted(actual_parts)))}")
+    safe_code = FolderManager.sanitize_name(config['code'])
+    book_name = config['book_name']
+    base_name = f"{safe_code}_{book_name}"
     
-    # Chapter configuration for each part
-    col1, col2 = st.columns([2, 1])
+    # Show standalone chapters first
+    if standalone_chapters:
+        st.markdown("**Standalone Chapters:**")
+        preview_chapters = ChapterManager.get_chapters_preview(
+            base_name, "standalone", standalone_chapters, is_standalone=True
+        )
+        
+        for chapter_folder in preview_chapters:
+            st.write(f"📖 {chapter_folder}")
+        
+        st.markdown("---")
     
-    with col1:
-        render_chapter_configuration(config, actual_parts)
-    
-    with col2:
-        render_chapter_preview(config)
+    # Show part chapters
+    for part_name, chapters in chapters_config.items():
+        if chapters:
+            st.markdown(f"**{part_name}:**")
+            
+            preview_chapters = ChapterManager.get_chapters_preview(
+                base_name, part_name, chapters, is_custom_part=True
+            )
+            
+            for chapter_folder in preview_chapters:
+                st.write(f"📂 {chapter_folder}")
+            
+            st.markdown("---")
 
-def delete_individual_part(config: Dict, part_number: int):
-    """Delete an individual part folder and all its contents"""
+# Keep existing functions but optimize them
+def get_existing_custom_parts(config: Dict) -> List[Dict]:
+    """Get list of actually existing custom parts by checking filesystem first, then session state"""
+    existing_parts = []
+    
+    safe_code = FolderManager.sanitize_name(config.get('code', ''))
+    book_name = config.get('book_name', '')
+    base_name = f"{safe_code}_{book_name}"
+    
+    # Get custom parts from session state
+    custom_parts = SessionManager.get('custom_parts', {})
+    
+    # Check filesystem directly to get the truth - use project destination
+    try:
+        project_destination = SessionManager.get_project_destination()
+        if project_destination and os.path.exists(project_destination):
+            base_path = Path(project_destination)
+        else:
+            base_path = Path.cwd()
+        
+        project_path = base_path / base_name
+        
+        if project_path.exists() and project_path.is_dir():
+            # Check which custom parts actually exist on filesystem
+            for part_id, part_info in custom_parts.items():
+                part_name = part_info['name']
+                part_folder = project_path / f"{base_name}_{part_name}"
+                
+                if part_folder.exists():
+                    existing_parts.append({
+                        'id': part_id,
+                        'name': part_name,
+                        'path': str(part_folder.absolute()),
+                        'display_name': part_info.get('display_name', part_name)
+                    })
+    except Exception:
+        pass
+    
+    return existing_parts
+
+def delete_individual_custom_part(config: Dict, part_name: str):
+    """Delete an individual custom part folder and all its contents"""
     try:
         safe_code = FolderManager.sanitize_name(config['code'])
         book_name = config['book_name']
         base_name = f"{safe_code}_{book_name}"
         
-        # Use consistent path resolution
-        current_dir = Path.cwd()
+        # Use project destination instead of current directory
+        project_destination = SessionManager.get_project_destination()
+        if project_destination and os.path.exists(project_destination):
+            base_path = Path(project_destination)
+        else:
+            base_path = Path.cwd()
         
-        possible_paths = [
-            Path(base_name),
-            current_dir / base_name,
-            Path.cwd() / base_name
-        ]
+        project_path = base_path / base_name
         
-        project_path = None
-        for path in possible_paths:
-            if path.exists():
-                project_path = path
-                break
-        
-        if not project_path:
-            st.error(f"Project folder not found. Cannot delete Part {part_number}.")
+        if not project_path.exists():
+            st.error(f"Project folder not found. Cannot delete part '{part_name}'.")
             return
         
         # Find the part folder
-        part_folder = project_path / f"{base_name}_Part_{part_number}"
+        part_folder = project_path / f"{base_name}_{part_name}"
         
         if not part_folder.exists():
-            st.error(f"Part {part_number} folder not found.")
+            st.error(f"Part '{part_name}' folder not found.")
             return
         
-        # Confirmation dialog
-        with st.spinner(f"Deleting Part {part_number} and all its contents..."):
-            # Delete the folder and all contents
-            shutil.rmtree(part_folder)
-            
-            # Update session state - remove from created folders
-            current_folders = SessionManager.get('created_folders', [])
-            part_path_str = str(part_folder.absolute())
-            if part_path_str in current_folders:
-                current_folders.remove(part_path_str)
-            
-            # Remove any chapter folders that were in this part
-            folders_to_remove = []
-            for folder_path in current_folders:
-                if f"Part_{part_number}" in folder_path and part_folder.name in folder_path:
-                    folders_to_remove.append(folder_path)
-            
-            for folder_path in folders_to_remove:
-                current_folders.remove(folder_path)
-            
-            SessionManager.set('created_folders', current_folders)
-            
-            # Remove chapter metadata for this part
-            folder_metadata = SessionManager.get('folder_metadata', {})
-            metadata_to_remove = []
-            for folder_id, metadata in folder_metadata.items():
-                if metadata.get('type') == 'chapter' and metadata.get('parent_part') == part_number:
-                    metadata_to_remove.append(folder_id)
-                elif metadata.get('type') == 'custom' and f"Part_{part_number}" in metadata.get('actual_path', ''):
-                    metadata_to_remove.append(folder_id)
-            
-            for folder_id in metadata_to_remove:
-                del folder_metadata[folder_id]
-            
-            SessionManager.set('folder_metadata', folder_metadata)
-            
-            # Remove chapters config for this part
-            chapters_config = SessionManager.get('chapters_config', {})
-            part_key = f"Part_{part_number}"
-            if part_key in chapters_config:
-                del chapters_config[part_key]
-                SessionManager.set('chapters_config', chapters_config)
-            
-            # Update num_parts if this was the highest numbered part
-            current_num_parts = config.get('num_parts', 0)
-            if part_number == current_num_parts:
-                # Find the new highest part number
-                existing_parts = get_existing_parts(config)
-                new_max_parts = max(existing_parts) if existing_parts else 0
-                SessionManager.update_config({'num_parts': new_max_parts})
-            
-            st.success(f"✅ Successfully deleted Part {part_number} and all its contents!")
-            
-    except PermissionError:
-        st.error(f"❌ Permission denied. Cannot delete Part {part_number}. Please check folder permissions.")
-    except Exception as e:
-        st.error(f"❌ Error deleting Part {part_number}: {str(e)}")
-
-def get_existing_parts(config: Dict) -> List[int]:
-    """Get list of actually existing part numbers by checking folders and session state"""
-    existing_parts = set()
-    
-    # Get from config num_parts
-    config_parts = config.get('num_parts', 0)
-    if config_parts > 0:
-        existing_parts.update(range(1, config_parts + 1))
-    
-    # Check created folders for individual parts
-    created_folders = SessionManager.get('created_folders', [])
-    safe_code = FolderManager.sanitize_name(config.get('code', ''))
-    book_name = config.get('book_name', '')
-    base_name = f"{safe_code}_{book_name}"
-    
-    for folder_path in created_folders:
-        folder_name = Path(folder_path).name
-        # Look for pattern: base_name_Part_X
-        if f"{base_name}_Part_" in folder_name:
-            try:
-                part_num_str = folder_name.split(f"{base_name}_Part_")[-1]
-                part_num = int(part_num_str)
-                existing_parts.add(part_num)
-            except (ValueError, IndexError):
-                continue
-    
-    # Also check filesystem directly
-    try:
-        current_dir = Path.cwd()
-        possible_paths = [
-            Path(base_name),
-            current_dir / base_name,
-            Path.cwd() / base_name
-        ]
+        # Delete the folder and all contents
+        shutil.rmtree(part_folder)
         
-        for project_path in possible_paths:
-            if project_path.exists() and project_path.is_dir():
-                for item in project_path.iterdir():
-                    if item.is_dir() and f"{base_name}_Part_" in item.name:
-                        try:
-                            part_num_str = item.name.split(f"{base_name}_Part_")[-1]
-                            part_num = int(part_num_str)
-                            existing_parts.add(part_num)
-                        except (ValueError, IndexError):
-                            continue
+        # Rest of the cleanup logic remains the same...
+        custom_parts = SessionManager.get('custom_parts', {})
+        part_to_remove = None
+        
+        for part_id, part_info in custom_parts.items():
+            if part_info['name'] == part_name:
+                part_to_remove = part_id
                 break
-    except Exception:
-        pass  # If filesystem check fails, continue with what we have
-    
-    return sorted(list(existing_parts))
-
-def add_individual_part(config: Dict):
-    """Add an individual part folder"""
-    try:
-        individual_part_num = st.session_state.get('individual_part_input', 1)
         
-        with st.spinner(f"Creating Part {individual_part_num}..."):
-            safe_code = FolderManager.sanitize_name(config['code'])
-            book_name = config['book_name']
-            base_name = f"{safe_code}_{book_name}"
-            
-            # Use consistent path resolution
-            import os
-            current_dir = Path.cwd()
-            
-            possible_paths = [
-                Path(base_name),
-                current_dir / base_name,
-                Path.cwd() / base_name
-            ]
-            
-            project_path = None
-            for path in possible_paths:
-                if path.exists():
-                    project_path = path
-                    break
-            
-            if not project_path:
-                project_path = current_dir / base_name
-                project_path.mkdir(parents=True, exist_ok=True)
-            
-            # Create individual part folder
-            part_folder = project_path / f"{base_name}_Part_{individual_part_num}"
-            part_folder.mkdir(exist_ok=True)
-            
-            # Update session state
-            current_folders = SessionManager.get('created_folders', [])
-            new_part_path = str(part_folder.absolute())
-            if new_part_path not in current_folders:
-                current_folders.append(new_part_path)
-                SessionManager.set('created_folders', current_folders)
-            
-            # Update num_parts if this part number is higher
-            current_num_parts = config.get('num_parts', 0)
-            if individual_part_num > current_num_parts:
-                SessionManager.update_config({'num_parts': individual_part_num})
-            
-            st.success(f"✅ Created Part {individual_part_num} successfully!")
-            st.info(f"📂 Location: {part_folder.absolute()}")
-            
+        if part_to_remove:
+            del custom_parts[part_to_remove]
+            SessionManager.set('custom_parts', custom_parts)
+        
+        # Update created folders list and remove related metadata
+        current_folders = SessionManager.get('created_folders', [])
+        part_path_str = str(part_folder.absolute())
+        if part_path_str in current_folders:
+            current_folders.remove(part_path_str)
+        
+        # Remove any chapter folders that were in this part
+        folders_to_remove = []
+        for folder_path in current_folders:
+            if f"_{part_name}" in folder_path and base_name in folder_path:
+                folders_to_remove.append(folder_path)
+        
+        for folder_path in folders_to_remove:
+            current_folders.remove(folder_path)
+        
+        SessionManager.set('created_folders', current_folders)
+        
+        # Remove chapter metadata for this part
+        folder_metadata = SessionManager.get('folder_metadata', {})
+        metadata_to_remove = []
+        for folder_id, metadata in folder_metadata.items():
+            if (metadata.get('type') == 'chapter' and 
+                metadata.get('parent_part_name') == part_name):
+                metadata_to_remove.append(folder_id)
+            elif (metadata.get('type') == 'custom' and 
+                  f"_{part_name}" in metadata.get('actual_path', '')):
+                metadata_to_remove.append(folder_id)
+        
+        for folder_id in metadata_to_remove:
+            del folder_metadata[folder_id]
+        
+        SessionManager.set('folder_metadata', folder_metadata)
+        
+        # Remove chapters config for this part
+        chapters_config = SessionManager.get('chapters_config', {})
+        if part_name in chapters_config:
+            del chapters_config[part_name]
+            SessionManager.set('chapters_config', chapters_config)
+        
+        # Set success message for next render
+        st.session_state['part_operation_completed'] = True
+        st.session_state['part_operation_info'] = {
+            'operation': 'delete',
+            'part_name': part_name
+        }
+        
+    except PermissionError:
+        st.error(f"❌ Permission denied. Cannot delete part '{part_name}'. Please check folder permissions.")
     except Exception as e:
-        st.error(f"Error creating individual part: {str(e)}")
+        st.error(f"❌ Error deleting part '{part_name}': {str(e)}")
 
 def render_prerequisites_warning():
     """Render warning when prerequisites are not met"""
@@ -1099,325 +2239,40 @@ def render_prerequisites_warning():
     3. Create folder structure
     """)
 
-def render_chapter_configuration(config: Dict, existing_parts: List[int]):
-    """Render chapter configuration interface"""
-    
-    chapters_config = SessionManager.get('chapters_config', {})
-    
-    for part_num in existing_parts:
-        with st.expander(f"📖 Part {part_num} Chapters", expanded=part_num == existing_parts[0] if existing_parts else False):
-            render_part_chapters(part_num, chapters_config, config)
-    
-    # Create chapters button
-    if any(chapters_config.values()):  # Only show if chapters are configured
-        if st.button("🏗️ Create All Chapters", type="primary"):
-            create_all_chapters(config, chapters_config)
-
-def get_chapter_number_format(part_num: int, chapter_index: int) -> str:
-    """Get formatted chapter number based on numbering system"""
-    numbering_config = SessionManager.get('numbering_systems', {})
-    part_key = f"Part_{part_num}"
-    numbering_system = numbering_config.get(part_key, "Numbers (1, 2, 3...)")
-    
-    chapter_num = chapter_index + 1  # Convert 0-based index to 1-based
-    
-    if numbering_system == "Words (One, Two, Three...)":
-        word_numbers = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
-                       "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", 
-                       "Eighteen", "Nineteen", "Twenty", "Twenty-One", "Twenty-Two", "Twenty-Three",
-                       "Twenty-Four", "Twenty-Five", "Twenty-Six", "Twenty-Seven", "Twenty-Eight",
-                       "Twenty-Nine", "Thirty", "Thirty-One", "Thirty-Two", "Thirty-Three", "Thirty-Four",
-                       "Thirty-Five", "Thirty-Six", "Thirty-Seven", "Thirty-Eight", "Thirty-Nine", "Forty",
-                       "Forty-One", "Forty-Two", "Forty-Three", "Forty-Four", "Forty-Five", "Forty-Six",
-                       "Forty-Seven", "Forty-Eight", "Forty-Nine", "Fifty"]
-        return word_numbers[chapter_num - 1] if chapter_num <= len(word_numbers) else str(chapter_num)
-    
-    elif numbering_system == "Roman (I, II, III...)":
-        roman_numerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
-                         "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX",
-                         "XXI", "XXII", "XXIII", "XXIV", "XXV", "XXVI", "XXVII", "XXVIII", "XXIX", "XXX",
-                         "XXXI", "XXXII", "XXXIII", "XXXIV", "XXXV", "XXXVI", "XXXVII", "XXXVIII", "XXXIX", "XL",
-                         "XLI", "XLII", "XLIII", "XLIV", "XLV", "XLVI", "XLVII", "XLVIII", "XLIX", "L"]
-        return roman_numerals[chapter_num - 1] if chapter_num <= len(roman_numerals) else str(chapter_num)
-    
-    elif numbering_system == "Null (null_1, null_2...)":
-        return f"null_{chapter_num}"
-    
-    else:  # Default to numbers
-        return str(chapter_num)
-
-def render_part_chapters(part_num: int, chapters_config: Dict, config: Dict):
-    """Render chapter configuration for a specific part"""
-    
-    part_key = f"Part_{part_num}"
-    part_chapters = chapters_config.get(part_key, [])
-    
-    # Number of chapters input
-    current_count = len(part_chapters)
-    num_chapters = st.number_input(
-        f"Number of chapters in Part {part_num}",
-        min_value=0,
-        value=current_count,
-        step=1,
-        key=f"chapters_count_{part_num}",
-        help="Enter any number of chapters (no limit)"
-    )
-    
-    # Chapter numbering system selection
-    if num_chapters > 0:
-        numbering_config = SessionManager.get('numbering_systems', {})
-        current_system = numbering_config.get(part_key, "Numbers (1, 2, 3...)")
-        
-        numbering_options = [
-            "Numbers (1, 2, 3...)", 
-            "Words (One, Two, Three...)", 
-            "Roman (I, II, III...)",
-            "Null (null_1, null_2...)"
-        ]
-        
-        numbering_system = st.selectbox(
-            f"Chapter Numbering System for Part {part_num}",
-            numbering_options,
-            index=numbering_options.index(current_system) if current_system in numbering_options else 0,
-            key=f"numbering_system_{part_num}",
-            help="Choose how chapters should be numbered. 'Null' will create null_(1), null_(2) format."
-        )
-        
-        # Check if numbering system changed
-        if current_system != numbering_system:
-            numbering_config[part_key] = numbering_system
-            SessionManager.set('numbering_systems', numbering_config)
-            update_chapter_numbering_system(part_num)
-            st.rerun()
-        
-        # Store numbering system in config
-        numbering_config[part_key] = numbering_system
-        SessionManager.set('numbering_systems', numbering_config)
-    
-    # Update chapters list based on count
-    if num_chapters != current_count:
-        update_chapters_count(part_key, num_chapters, part_chapters, part_num)
-        st.rerun()
-    
-    # Chapter details configuration
-    if num_chapters > 0:
-        render_chapter_details(part_num, part_chapters, config)
-        
-        # Individual create button for this part
-        part_button_col1, part_button_col2 = st.columns(2)
-        with part_button_col1:
-            if st.button(f"🏗️ Create Part {part_num} Chapters", key=f"create_part_{part_num}"):
-                create_chapters_for_part(config, part_num, part_chapters)
-        
-        with part_button_col2:
-            if SessionManager.get('chapters_created') and any(part_chapters):
-                if st.button(f"🔄 Update Part {part_num} Chapters", key=f"update_part_{part_num}"):
-                    update_existing_chapters_for_part(config, part_num, part_chapters)
-
-def update_chapters_count(part_key: str, num_chapters: int, current_chapters: List, part_num: int):
-    """Update the number of chapters for a part with auto-numbering"""
-    chapters_config = SessionManager.get('chapters_config', {})
-    
-    if num_chapters > len(current_chapters):
-        # Add new chapters with auto-generated numbers
-        for i in range(len(current_chapters), num_chapters):
-            auto_number = get_chapter_number_format(part_num, i)
-            current_chapters.append({'number': auto_number, 'name': ''})
-    else:
-        # Remove extra chapters
-        current_chapters = current_chapters[:num_chapters]
-    
-    chapters_config[part_key] = current_chapters
-    SessionManager.set('chapters_config', chapters_config)
-
-def update_chapter_numbering_system(part_num: int):
-    """Update all chapter numbers when numbering system changes"""
-    part_key = f"Part_{part_num}"
-    chapters_config = SessionManager.get('chapters_config', {})
-    current_chapters = chapters_config.get(part_key, [])
-    
-    if current_chapters:
-        # Update all chapter numbers based on new system
-        for i, chapter in enumerate(current_chapters):
-            new_number = get_chapter_number_format(part_num, i)
-            current_chapters[i]['number'] = new_number
-        
-        chapters_config[part_key] = current_chapters
-        SessionManager.set('chapters_config', chapters_config)
-
-def render_chapter_details(part_num: int, chapters: List[Dict], config: Dict):
-    """Render detailed configuration for each chapter with rename detection"""
-    
-    st.markdown(f"**Configure chapters for Part {part_num}:**")
-    
-    # Get old chapters config for comparison
-    old_chapters_config = SessionManager.get('chapters_config', {})
-    old_chapters = old_chapters_config.get(f"Part_{part_num}", [])
-    
-    updated_chapters = []
-    safe_code = FolderManager.sanitize_name(config['code'])
-    book_name = config['book_name']
-    base_name = f"{safe_code}_{book_name}"
-    
-    for i, chapter in enumerate(chapters):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            auto_number = get_chapter_number_format(part_num, i)
-            chapter_number = st.text_input(
-                "Number",
-                value=chapter.get('number', auto_number),
-                placeholder=f"e.g., {auto_number}",
-                key=f"chapter_num_{part_num}_{i}",
-                help="Chapter number will auto-populate based on selected system"
-            )
-        
-        with col2:
-            chapter_name = st.text_input(
-                "Name",
-                value=chapter.get('name', ''),
-                placeholder="e.g., Introduction, Basics (leave empty for 'Null Name')",
-                key=f"chapter_name_{part_num}_{i}",
-                help="Leave empty to use 'Null Name' in folder naming"
-            )
-        
-        updated_chapters.append({
-            'number': chapter_number,
-            'name': chapter_name
-        })
-        
-        # Show preview of folder name
-        preview_name = ChapterManager.generate_chapter_folder_name(
-            f"{base_name}_Part_{part_num}",
-            chapter_number or None,
-            chapter_name or None
-        )
-        st.caption(f"📁 Folder: `{preview_name}`")
-        
-        if i < len(chapters) - 1:
-            st.markdown("---")
-    
-    # Check for chapter name/number changes and handle file renaming
-    if len(old_chapters) == len(updated_chapters) and SessionManager.get('chapters_created'):
-        handle_chapter_renaming(part_num, old_chapters, updated_chapters, config)
-    
-    # Update session state
-    chapters_config = SessionManager.get('chapters_config', {})
-    chapters_config[f"Part_{part_num}"] = updated_chapters
-    SessionManager.set('chapters_config', chapters_config)
-
-def handle_chapter_renaming(part_num: int, old_chapters: List[Dict], new_chapters: List[Dict], config: Dict):
-    """Handle renaming of chapter files when chapter details change"""
-    folder_metadata = SessionManager.get('folder_metadata', {})
-    safe_code = FolderManager.sanitize_name(config['code'])
-    book_name = config['book_name']
-    base_name = f"{safe_code}_{book_name}"
-    part_folder_name = f"{base_name}_Part_{part_num}"
-    
-    for i, (old_chapter, new_chapter) in enumerate(zip(old_chapters, new_chapters)):
-        # Check if chapter name/number changed
-        old_name = old_chapter.get('name', '').strip()
-        old_number = old_chapter.get('number', '').strip()
-        new_name = new_chapter.get('name', '').strip()
-        new_number = new_chapter.get('number', '').strip()
-        
-        if old_name != new_name or old_number != new_number:
-            # Find corresponding chapter folder and rename files
-            for folder_id, metadata in folder_metadata.items():
-                if (metadata['type'] == 'chapter' and 
-                    metadata['parent_part'] == part_num and
-                    metadata['chapter_number'] == old_number and
-                    metadata['chapter_name'] == old_name):
-                    
-                    # Update metadata
-                    metadata['chapter_number'] = new_number
-                    metadata['chapter_name'] = new_name
-                    
-                    # Generate new naming base
-                    new_naming_base = ChapterManager.generate_chapter_folder_name(
-                        part_folder_name, new_number or None, new_name or None
-                    )
-                    
-                    # Rename files and folder
-                    if ChapterManager.rename_chapter_files(folder_id, new_naming_base):
-                        st.success(f"📝 Renamed files in chapter {i+1}")
-                    
-                    # Update display name and naming base
-                    display_chapter_name = new_naming_base.split(f'{part_folder_name}_')[-1]
-                    metadata['display_name'] = f"Part {part_num} → {display_chapter_name}"
-                    metadata['naming_base'] = new_naming_base
-                    break
-    
-    SessionManager.set('folder_metadata', folder_metadata)
-
-def render_chapter_preview(config: Dict):
-    """Render chapter structure preview"""
-    st.subheader("📋 Structure Preview")
-    
-    chapters_config = SessionManager.get('chapters_config', {})
-    
-    if not any(chapters_config.values()):
-        st.info("Configure chapters to see preview")
-        return
-    
-    safe_code = FolderManager.sanitize_name(config['code'])
-    book_name = config['book_name']
-    base_name = f"{safe_code}_{book_name}"
-    
-    for part_key, chapters in chapters_config.items():
-        if chapters:
-            part_num = part_key.split('_')[1]
-            st.markdown(f"**Part {part_num}:**")
-            
-            preview_chapters = ChapterManager.get_chapters_preview(
-                base_name, int(part_num), chapters
-            )
-            
-            for chapter_folder in preview_chapters:
-                st.write(f"📂 {chapter_folder}")
-            
-            st.markdown("---")
-
-def create_chapters_for_part(config: Dict, part_num: int, chapters: List[Dict]):
-    """Create chapters for a specific part only"""
+# Keep existing creation functions (they work fine)
+def create_standalone_chapters(config: Dict, chapters: List[Dict]):
+    """Create standalone chapters directly under project root"""
     if not chapters or not any(ch.get('number') or ch.get('name') for ch in chapters):
-        st.warning(f"No chapters configured for Part {part_num}!")
+        st.warning("No standalone chapters configured!")
         return
     
     try:
-        with st.spinner(f"Creating chapters for Part {part_num}..."):
+        with st.spinner("Creating standalone chapters..."):
             safe_code = FolderManager.sanitize_name(config['code'])
             book_name = config['book_name']
             base_name = f"{safe_code}_{book_name}"
             
-            # Use consistent path resolution
-            current_dir = Path.cwd()
+            # Use project destination instead of current directory
+            project_destination = SessionManager.get_project_destination()
+            if project_destination and os.path.exists(project_destination):
+                base_path = Path(project_destination)
+            else:
+                base_path = Path.cwd()
             
-            possible_paths = [
-                Path(base_name),
-                current_dir / base_name,
-                Path.cwd() / base_name
-            ]
+            project_path = base_path / base_name
             
-            project_path = None
-            for path in possible_paths:
-                if path.exists():
-                    project_path = path
-                    break
-            
-            if not project_path:
-                project_path = current_dir / base_name
+            if not project_path.exists():
                 project_path.mkdir(parents=True, exist_ok=True)
                 st.info(f"Created project directory: {project_path.absolute()}")
             
             # Validate chapters before creating
             is_valid, error_msg = ChapterManager.validate_chapter_data(chapters)
             if not is_valid:
-                st.error(f"Error in Part {part_num}: {error_msg}")
+                st.error(f"Error in standalone chapters: {error_msg}")
                 return
             
-            created_chapters = ChapterManager.create_chapter_folders(
-                project_path, base_name, part_num, chapters
+            created_chapters = ChapterManager.create_standalone_chapter_folders(
+                project_path, base_name, chapters
             )
             
             if created_chapters:
@@ -1427,17 +2282,78 @@ def create_chapters_for_part(config: Dict, part_num: int, chapters: List[Dict]):
                 current_folders.extend(created_chapters)
                 SessionManager.set('created_folders', current_folders)
                 
-                st.success(f"✅ Created {len(created_chapters)} chapters for Part {part_num}!")
+                st.success(f"✅ Created {len(created_chapters)} standalone chapters!")
                 
                 # Show created chapters
-                with st.expander(f"📂 View Created Chapters for Part {part_num}"):
+                with st.expander("📂 View Created Standalone Chapters"):
                     for chapter in created_chapters:
                         st.write(f"📂 {chapter}")
     
     except Exception as e:
-        st.error(f"Error creating chapters for Part {part_num}: {str(e)}")
-        st.error(f"Debug info: Tried to find project at {base_name}")
-        st.error(f"Current working directory: {Path.cwd()}")
+        st.error(f"Error creating standalone chapters: {str(e)}")
+
+
+def update_existing_standalone_chapters(config: Dict, chapters: List[Dict]):
+    """Update existing standalone chapters"""
+    try:
+        with st.spinner("Updating standalone chapters..."):
+            st.success("✅ Updated standalone chapters!")
+            st.info("Chapter updates are handled automatically when you modify names/numbers.")
+    except Exception as e:
+        st.error(f"Error updating standalone chapters: {str(e)}")
+
+
+def create_chapters_for_custom_part(config: Dict, part_name: str, chapters: List[Dict]):
+    """Create chapters for a specific custom part only"""
+    if not chapters or not any(ch.get('number') or ch.get('name') for ch in chapters):
+        st.warning(f"No chapters configured for {part_name}!")
+        return
+    
+    try:
+        with st.spinner(f"Creating chapters for {part_name}..."):
+            safe_code = FolderManager.sanitize_name(config['code'])
+            book_name = config['book_name']
+            base_name = f"{safe_code}_{book_name}"
+            
+            # Use project destination instead of current directory
+            project_destination = SessionManager.get_project_destination()
+            if project_destination and os.path.exists(project_destination):
+                base_path = Path(project_destination)
+            else:
+                base_path = Path.cwd()
+            
+            project_path = base_path / base_name
+            
+            if not project_path.exists():
+                project_path.mkdir(parents=True, exist_ok=True)
+                st.info(f"Created project directory: {project_path.absolute()}")
+            
+            # Validate chapters before creating
+            is_valid, error_msg = ChapterManager.validate_chapter_data(chapters)
+            if not is_valid:
+                st.error(f"Error in {part_name}: {error_msg}")
+                return
+            
+            created_chapters = ChapterManager.create_chapter_folders_for_custom_part(
+                project_path, base_name, part_name, chapters
+            )
+            
+            if created_chapters:
+                SessionManager.set('chapters_created', True)
+                # Update created folders list
+                current_folders = SessionManager.get('created_folders', [])
+                current_folders.extend(created_chapters)
+                SessionManager.set('created_folders', current_folders)
+                
+                st.success(f"✅ Created {len(created_chapters)} chapters for {part_name}!")
+                
+                # Show created chapters
+                with st.expander(f"📂 View Created Chapters for {part_name}"):
+                    for chapter in created_chapters:
+                        st.write(f"📂 {chapter}")
+    
+    except Exception as e:
+        st.error(f"Error creating chapters for {part_name}: {str(e)}")
 
 def create_all_chapters(config: Dict, chapters_config: Dict):
     """Create all configured chapters with unique IDs and metadata tracking"""
@@ -1452,40 +2368,32 @@ def create_all_chapters(config: Dict, chapters_config: Dict):
             book_name = config['book_name']
             base_name = f"{safe_code}_{book_name}"
             
-            # Use consistent path resolution
-            current_dir = Path.cwd()
+            # Use project destination instead of current directory
+            project_destination = SessionManager.get_project_destination()
+            if project_destination and os.path.exists(project_destination):
+                base_path = Path(project_destination)
+            else:
+                base_path = Path.cwd()
             
-            possible_paths = [
-                Path(base_name),
-                current_dir / base_name,
-                Path.cwd() / base_name
-            ]
+            project_path = base_path / base_name
             
-            project_path = None
-            for path in possible_paths:
-                if path.exists():
-                    project_path = path
-                    break
-            
-            if not project_path:
-                project_path = current_dir / base_name
+            if not project_path.exists():
                 project_path.mkdir(parents=True, exist_ok=True)
                 st.info(f"Created project directory: {project_path.absolute()}")
             
             all_created_chapters = []
             
-            for part_key, chapters in chapters_config.items():
+            for part_name, chapters in chapters_config.items():
                 if chapters and any(ch.get('number') or ch.get('name') for ch in chapters):
-                    part_num = int(part_key.split('_')[1])
                     
                     # Validate chapters before creating
                     is_valid, error_msg = ChapterManager.validate_chapter_data(chapters)
                     if not is_valid:
-                        st.error(f"Error in Part {part_num}: {error_msg}")
+                        st.error(f"Error in {part_name}: {error_msg}")
                         continue
                     
-                    created_chapters = ChapterManager.create_chapter_folders(
-                        project_path, base_name, part_num, chapters
+                    created_chapters = ChapterManager.create_chapter_folders_for_custom_part(
+                        project_path, base_name, part_name, chapters
                     )
                     all_created_chapters.extend(created_chapters)
             
@@ -1507,17 +2415,16 @@ def create_all_chapters(config: Dict, chapters_config: Dict):
     
     except Exception as e:
         st.error(f"Error creating chapters: {str(e)}")
-        st.error(f"Debug info: Tried to find project at {base_name}")
-        st.error(f"Current working directory: {Path.cwd()}")
 
-def update_existing_chapters_for_part(config: Dict, part_num: int, chapters: List[Dict]):
-    """Update existing chapters for a specific part"""
+
+def update_existing_chapters_for_part(config: Dict, part_name: str, chapters: List[Dict]):
+    """Update existing chapters for a specific custom part"""
     try:
-        with st.spinner(f"Updating chapters for Part {part_num}..."):
-            st.success(f"✅ Updated chapters for Part {part_num}!")
+        with st.spinner(f"Updating chapters for {part_name}..."):
+            st.success(f"✅ Updated chapters for {part_name}!")
             st.info("Chapter updates are handled automatically when you modify names/numbers.")
     except Exception as e:
-        st.error(f"Error updating chapters for Part {part_num}: {str(e)}")
+        st.error(f"Error updating chapters for {part_name}: {str(e)}")
 
 
 # ===== File: src/ui/custom_folder_management.py =====
@@ -1528,6 +2435,7 @@ from typing import Dict, List, Optional
 from pathlib import Path
 
 from core.session_manager import SessionManager
+import os
 
 def render_custom_folder_management_page():
     """Render the custom folder management page"""
@@ -1750,13 +2658,22 @@ def render_custom_path_input() -> Optional[str]:
     
     return None
 
+
 def create_custom_folder_simple(parent_path: str, folder_name: str) -> bool:
-    """Create a custom folder with parent folder prefix + custom name"""
+    """Create a custom folder with parent folder prefix + custom name and font formatting"""
     
     try:
+        # Lazy import for font formatting
+        from core.text_formatter import TextFormatter
+        font_case = st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+        
         parent_folder = Path(parent_path)
         parent_folder_name = parent_folder.name
-        final_folder_name = f"{parent_folder_name}_{folder_name}"
+        
+        # Apply font formatting to the custom folder name
+        formatted_folder_name = TextFormatter.format_custom_folder_name(folder_name, font_case)
+        final_folder_name = f"{parent_folder_name}_{formatted_folder_name}"
+        
         custom_folder_path = parent_folder / final_folder_name
         
         # Check if folder already exists
@@ -1768,15 +2685,15 @@ def create_custom_folder_simple(parent_path: str, folder_name: str) -> bool:
             # Ensure parent folder exists
             parent_folder.mkdir(parents=True, exist_ok=True)
             
-            # Create the custom folder with parent prefix + custom name
+            # Create the custom folder with parent prefix + formatted custom name
             custom_folder_path.mkdir(exist_ok=True)
             
-            # Add to metadata
+            # Add to metadata - FIXED: Use correct number of arguments
             add_folder_to_metadata(
                 str(custom_folder_path.absolute()), 
                 final_folder_name, 
                 parent_path,
-                folder_name  # Original name without prefix
+                folder_name  # Original name for reference
             )
             
             # Store success information for next render
@@ -1800,6 +2717,35 @@ def create_custom_folder_simple(parent_path: str, folder_name: str) -> bool:
     except Exception as e:
         st.error(f"❌ Unexpected error creating custom folder: {str(e)}")
         return False
+    
+
+def add_folder_to_metadata(folder_path: str, folder_name: str, parent_path: str, original_name: str = None):
+    """Add folder to metadata tracking - FIXED signature"""
+    
+    folder_metadata = SessionManager.get('folder_metadata', {})
+    import random
+    custom_folder_id = f"custom_{random.randint(10000, 99999)}"
+    
+    parent_name = Path(parent_path).name
+    display_original_name = original_name or folder_name
+    
+    folder_metadata[custom_folder_id] = {
+        'display_name': f"{parent_name} → {display_original_name}",
+        'actual_path': folder_path,
+        'type': 'custom',
+        'parent_path': parent_path,
+        'folder_name': folder_name,  # Full name with prefix and formatting
+        'naming_base': folder_name,   # Use full formatted name for file naming
+        'original_name': original_name  # Keep original input
+    }
+    
+    SessionManager.set('folder_metadata', folder_metadata)
+    
+    # Update created folders list
+    current_folders = SessionManager.get('created_folders', [])
+    if folder_path not in current_folders:
+        current_folders.append(folder_path)
+        SessionManager.set('created_folders', current_folders)
 
 def add_folder_to_metadata(folder_path: str, folder_name: str, parent_path: str, original_name: str = None):
     """Add folder to metadata tracking"""
@@ -1831,24 +2777,24 @@ def add_folder_to_metadata(folder_path: str, folder_name: str, parent_path: str,
         current_folders.append(folder_path)
         SessionManager.set('created_folders', current_folders)
 
+
 def get_project_path(base_name: str) -> Path:
-    """Get the project path using consistent resolution"""
-    current_dir = Path.cwd()
+    """Get the project path using project destination"""
+    # Use project destination instead of current directory  
+    project_destination = SessionManager.get_project_destination()
+    if project_destination and os.path.exists(project_destination):
+        base_path = Path(project_destination)
+    else:
+        base_path = Path.cwd()
     
-    possible_paths = [
-        Path(base_name),
-        current_dir / base_name,
-        Path.cwd() / base_name
-    ]
+    project_path = base_path / base_name
     
-    for path in possible_paths:
-        if path.exists():
-            return path
+    if not project_path.exists():
+        # Create if doesn't exist
+        project_path.mkdir(parents=True, exist_ok=True)
     
-    # Create if doesn't exist
-    project_path = current_dir / base_name
-    project_path.mkdir(parents=True, exist_ok=True)
     return project_path
+
 
 def get_all_project_folders(project_path: Path) -> List[tuple]:
     """Get all folders within the project directory"""
@@ -1941,6 +2887,361 @@ def delete_custom_folder(folder_id: str, metadata: Dict):
         st.error(f"❌ Error deleting folder '{folder_name}': {str(e)}")
 
 
+# ===== File: src/ui/folder_selector.py =====
+
+# ui/folder_selector.py - Streamlit-only destination folder selector
+
+import streamlit as st
+import os
+from pathlib import Path
+from core.session_manager import SessionManager
+
+
+def render_destination_folder_selector():
+    """Render destination folder selector in sidebar - simplified to only project destination"""
+    
+    st.markdown("---")
+    st.subheader("📁 Project Destination")
+    
+    # Project destination section
+    current_project_dest = SessionManager.get_project_destination()
+    
+    if current_project_dest:
+        folder_name = Path(current_project_dest).name
+        st.info(f"Project Base: **{folder_name}**")
+        
+        if os.path.exists(current_project_dest):
+            st.success("✅ Accessible")
+        else:
+            st.warning("⚠️ Not found")
+            
+        if st.button("🗑️ Clear Project Location", key="clear_project_destination"):
+            SessionManager.set_project_destination('')
+            st.session_state['project_destination_selected'] = False
+            st.rerun()
+    else:
+        st.info("Using current directory")
+    
+    # Set project destination - fix double-click issue
+    if st.button("📂 Set Project Location", key="set_project_destination"):
+        st.session_state['show_project_browser'] = True
+        st.session_state['folder_browser_active'] = True  # Set both flags immediately
+        st.session_state['folder_browser_context'] = 'project'
+        st.rerun()  # Force immediate rerun
+
+def show_folder_browser_overlay():
+    """Show folder browser overlay in main content area"""
+    
+    # This will be rendered in the main content area
+    st.session_state['folder_browser_active'] = True
+
+
+
+def render_folder_browser_in_main():
+    """Render folder browser in main content area when active"""
+    
+    if not st.session_state.get('folder_browser_active', False):
+        return False
+    
+    context = st.session_state.get('folder_browser_context', 'project')
+    
+    if context == 'page_assignment':
+        st.markdown("## 📂 Select Page Extraction Destination")
+        st.markdown("Choose where to extract pages from your PDF.")
+    else:
+        st.markdown("## 📂 Select Project Base Location")
+        st.markdown("Your entire project folder will be created inside the selected location.")
+    
+    st.markdown("---")
+    
+    # Initialize browser path
+    if 'browser_path' not in st.session_state:
+        st.session_state['browser_path'] = str(Path.home().absolute())
+    
+    current_path = Path(st.session_state['browser_path']).absolute()
+    
+    # Current location display
+    st.info(f"📍 Current location: {current_path}")
+    
+    # Navigation controls
+    col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
+    
+    with col1:
+        if st.button("🏠 Home", key="nav_home"):
+            st.session_state['browser_path'] = str(Path.home().absolute())
+            st.rerun()
+    
+    with col2:
+        if current_path.parent != current_path:
+            if st.button("⬆️ Up", key="nav_up"):
+                st.session_state['browser_path'] = str(current_path.parent.absolute())
+                st.rerun()
+    
+    with col3:
+        if context == 'page_assignment':
+            button_text = "✅ SELECT FOR EXTRACTION"
+        else:
+            button_text = "✅ SET PROJECT LOCATION"
+            
+        if st.button(button_text, key="select_folder", type="primary"):
+            selected_path = str(current_path.absolute())
+            
+            if context == 'page_assignment':
+                # Store the selection for page assignment
+                st.session_state['selected_page_destination'] = selected_path
+                st.session_state['selected_page_destination_name'] = current_path.name
+                st.success(f"✅ Extraction destination selected: {current_path.name}")
+                st.session_state['show_folder_browser'] = False
+            else:
+                SessionManager.set_project_destination(selected_path)
+                st.success(f"✅ Project location set: {current_path.name}")
+                st.session_state['show_project_browser'] = False
+            
+            # Close browser
+            st.session_state['folder_browser_active'] = False
+            st.rerun()
+    
+    with col4:
+        if st.button("❌ Cancel", key="cancel_browser"):
+            st.session_state['folder_browser_active'] = False
+            st.session_state['show_folder_browser'] = False
+            st.session_state['show_project_browser'] = False
+            st.rerun()
+    
+    # Quick access buttons
+    st.markdown("**Quick Access:**")
+    quick_folders = get_quick_access_folders()
+    
+    if quick_folders:
+        cols = st.columns(len(quick_folders))
+        for i, (name, path) in enumerate(quick_folders.items()):
+            with cols[i]:
+                if st.button(name, key=f"quick_nav_{i}"):
+                    st.session_state['browser_path'] = path
+                    st.rerun()
+    
+    st.markdown("---")
+    
+    # CRITICAL: This is the folder listing section that was missing
+    try:
+        folders = [item for item in current_path.iterdir() 
+                  if item.is_dir() and not item.name.startswith('.')]
+        folders.sort(key=lambda x: x.name.lower())
+        
+        if folders:
+            st.markdown("**📁 Available Folders:**")
+            
+            # Display folders in a grid
+            cols_per_row = 3
+            for i in range(0, len(folders), cols_per_row):
+                cols = st.columns(cols_per_row)
+                
+                for j, folder in enumerate(folders[i:i+cols_per_row]):
+                    if j < len(cols):
+                        with cols[j]:
+                            folder_name = folder.name
+                            display_name = folder_name[:15] + "..." if len(folder_name) > 15 else folder_name
+                            
+                            if st.button(f"📁 {display_name}", 
+                                       key=f"folder_nav_{i}_{j}",
+                                       help=f"Navigate to: {folder_name}"):
+                                st.session_state['browser_path'] = str(folder.absolute())
+                                st.rerun()
+        else:
+            st.info("📂 No subfolders found in this directory")
+            
+    except PermissionError:
+        st.error("❌ Permission denied accessing this folder")
+    except Exception as e:
+        st.error(f"❌ Error reading folder: {str(e)}")
+    
+    return True
+
+def get_quick_access_folders():
+    """Get quick access folder shortcuts"""
+    
+    home = Path.home()
+    folders = {
+        "Desktop": str(home / "Desktop"),
+        "Documents": str(home / "Documents"),
+        "Downloads": str(home / "Downloads"),
+        "Current": str(Path.cwd())
+    }
+    
+    return {name: path for name, path in folders.items() if os.path.exists(path)}
+
+
+def render_destination_quick_selector():
+    """Quick destination selector for page assignment"""
+    
+    # Check if we should show the browser
+    if st.button("📂 Browse for Folder", key="open_browser_btn", type="primary"):
+        st.session_state['show_folder_browser'] = True
+        st.session_state['folder_browser_active'] = True
+        st.session_state['folder_browser_context'] = 'page_assignment'
+        st.rerun()
+    
+    # Quick selection options
+    st.markdown("**Or select quickly:**")
+    
+    quick_folders = get_quick_access_folders()
+    
+    for name, path in quick_folders.items():
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.write(f"📁 {name}")
+            st.caption(path)
+        with col2:
+            if st.button("Select", key=f"select_{name.replace(' ', '_')}"):
+                return (path, Path(path).name)
+    
+    # Manual input
+    st.markdown("**Or enter path manually:**")
+    manual_path = st.text_input(
+        "Folder path:",
+        placeholder="Enter full path to destination folder",
+        key="manual_path_input"
+    )
+    
+    if manual_path.strip():
+        path = Path(manual_path.strip())
+        if st.button("Use This Path", key="use_manual_path"):
+            return (str(path.absolute()), path.name)
+    
+    return ("", "")
+
+
+# ===== File: src/ui/font_selector.py =====
+
+# ui/font_selector.py - Font case selection interface
+
+import streamlit as st
+
+def render_font_case_selector():
+    """Render font case selection interface"""
+    # Lazy import to avoid circular dependency
+    from core.text_formatter import TextFormatter
+    
+    st.subheader("🎨 Text Formatting Setup")
+    st.markdown("Choose how all text elements (codes, names, chapters, etc.) should be formatted throughout the application.")
+    
+    # Center the content
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.markdown("### Select Font Case Style")
+        
+        # Get font case options
+        font_options = TextFormatter.get_font_case_options()
+        current_selection = st.session_state.get('selected_font_case', font_options[2])  # Default to First Capital
+        
+        # Find current index
+        try:
+            current_index = font_options.index(current_selection)
+        except ValueError:
+            current_index = 2  # Default to First Capital
+        
+        selected_font_case = st.radio(
+            "Choose formatting style:",
+            font_options,
+            index=current_index,
+            key="font_case_radio",
+            help="This formatting will be applied to all text elements including book codes, names, chapters, and folder names"
+        )
+        
+        # Show preview examples
+        st.markdown("---")
+        st.markdown("### Preview Examples")
+        
+        # Example texts
+        example_code = "CS101"
+        example_book = "Data Structures and Algorithms"
+        example_part = "Advanced Topics"
+        example_chapter = "Binary Search Trees"
+        
+        # Format examples
+        formatted_code = TextFormatter.format_project_code(example_code, selected_font_case)
+        formatted_book = TextFormatter.format_book_name(example_book, selected_font_case)
+        formatted_part = TextFormatter.format_part_name(example_part, selected_font_case)
+        formatted_chapter = TextFormatter.format_chapter_name(example_chapter, selected_font_case)
+        
+        # Display examples in a nice format
+        st.markdown(f"**Project Code:** `{formatted_code}`")
+        st.markdown(f"**Book Name:** `{formatted_book}`")
+        st.markdown(f"**Part Name:** `{formatted_part}`")
+        st.markdown(f"**Chapter Name:** `{formatted_chapter}`")
+        
+        st.markdown("---")
+        
+        # Confirmation button
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+        
+        with col_btn2:
+            if st.button("✅ Confirm Selection", type="primary", key="confirm_font_case"):
+                st.session_state['selected_font_case'] = selected_font_case
+                st.session_state['font_case_selected'] = True
+                st.success(f"✅ Font case set to: {selected_font_case}")
+                st.rerun()
+        
+        # Option to change later
+        st.markdown("---")
+        st.info("💡 You can change the font formatting later from the sidebar settings.")
+
+
+def render_font_case_changer():
+    """Render font case changer for sidebar with radio buttons"""
+    from core.text_formatter import TextFormatter
+    
+    if st.session_state.get('font_case_selected'):
+        st.markdown("---")
+        st.subheader("🎨 Text Format")
+        
+        current_font_case = st.session_state.get('selected_font_case', 'First Capital (Title Case)')
+        font_options = TextFormatter.get_font_case_options()
+        
+        try:
+            current_index = font_options.index(current_font_case)
+        except ValueError:
+            current_index = 2
+        
+        # Initialize the previous selection in session state if not exists
+        if 'previous_font_selection' not in st.session_state:
+            st.session_state['previous_font_selection'] = current_font_case
+        
+        # Simple radio button selection
+        selected_font_case = st.radio(
+            "Select font format:",
+            font_options,
+            index=current_index,
+            key="font_case_radio_selection",
+            help="Choose how all text elements are formatted"
+        )
+        
+        # Only process change if it's actually different from previous selection
+        # AND if the folder structure hasn't been created yet (to prevent unwanted refreshes)
+        from src.core.session_manager import SessionManager
+        
+        if (selected_font_case != st.session_state['previous_font_selection'] and 
+            not SessionManager.get('folder_structure_created')):
+            
+            st.markdown("**Preview:**")
+            sample_texts = ["CS101", "Data Structures", "Advanced Topics"]
+            
+            for sample in sample_texts:
+                formatted = TextFormatter.format_text(sample, selected_font_case)
+                st.write(f"`{formatted}`")
+            
+            # Update both current and previous selections
+            st.session_state['selected_font_case'] = selected_font_case
+            st.session_state['previous_font_selection'] = selected_font_case
+            st.success(f"Font format updated to: {selected_font_case}")
+            # Don't call st.rerun() here to prevent the refresh issue
+        elif selected_font_case != st.session_state['previous_font_selection']:
+            # Just update the selection without showing preview or rerunning
+            st.session_state['selected_font_case'] = selected_font_case
+            st.session_state['previous_font_selection'] = selected_font_case
+
+
 # ===== File: src/ui/main_content.py =====
 
 # src/ui/main_content.py
@@ -1974,7 +3275,7 @@ def render_welcome_message():
     
     1. **Upload PDF**: Select your main book PDF file
     2. **Project Setup**: Enter project code and book name
-    3. **Configure Parts**: Specify how many parts your book has
+    3. **Configure Custom Parts**: Create custom-named parts (e.g., 'India', 'Iran', 'History')
     4. **Create Folders**: Generate the folder structure
     5. **Setup Chapters**: Configure chapters within parts (optional)
     6. **Assign Pages**: Move page ranges to specific folders
@@ -1988,9 +3289,15 @@ def render_project_summary():
     
     if is_project_configured(config):
         display_project_info(config)
-        render_folder_creation_button(config)
+        
+        # Check if font case is selected before showing folder creation
+        if SessionManager.get('font_case_selected'):
+            render_folder_creation_button(config)
+        else:
+            st.info("Please select font formatting in the sidebar first.")
     else:
         st.warning("⚠️ Please complete the project configuration in the sidebar")
+
 
 def is_project_configured(config: dict) -> bool:
     """Check if project is properly configured"""
@@ -2000,15 +3307,21 @@ def display_project_info(config: dict):
     """Display current project information"""
     pdf_file = SessionManager.get('pdf_file')
     total_pages = SessionManager.get('total_pages')
+    custom_parts = SessionManager.get('custom_parts', {})
     
     if pdf_file:
         st.write(f"**Project:** {config['code']}_{config['book_name']}")
         st.write(f"**PDF:** {pdf_file.name}")
         st.write(f"**Total Pages:** {total_pages}")
-        st.write(f"**Parts:** {config.get('num_parts', 0)}")
+        st.write(f"**Custom Parts:** {len(custom_parts)} parts configured")
+        
+        # Show part names if any exist
+        if custom_parts:
+            part_names = [part_info['name'] for part_info in custom_parts.values()]
+            st.write(f"**Part Names:** {', '.join(part_names)}")
 
 def render_folder_creation_button(config: dict):
-    """Render folder creation button and handle creation"""
+    """Render folder creation interface with default folder selection"""
     if SessionManager.get('folder_structure_created'):
         st.success("✅ Folder structure already created!")
         
@@ -2018,40 +3331,176 @@ def render_folder_creation_button(config: dict):
             for folder in created_folders:
                 st.write(f"📂 {folder}")
     else:
-        if st.button("🏗️ Create Folder Structure", type="primary"):
-            create_folder_structure(config)
+        render_default_folder_selection(config)
 
-def create_folder_structure(config: dict):
-    """Create the folder structure"""
+
+def render_default_folder_selection(config: dict):
+    """Render default folder selection interface"""
+    st.markdown("### 📂 Select Default Folders to Create")
+    st.markdown("Choose which default folders you want to include in your project structure:")
+    
+    # Get available default folder options
+    folder_options = FolderManager.get_default_folder_options()
+    
+    # Create checkboxes for each default folder
+    col1, col2 = st.columns(2)
+    selected_folders = []
+    
+    for i, folder_option in enumerate(folder_options):
+        folder_name = folder_option['name']
+        folder_desc = folder_option['description']
+        
+        # Alternate between columns
+        target_col = col1 if i % 2 == 0 else col2
+        
+        with target_col:
+            # Pre-select common folders
+            default_selected = folder_name in ['prologue', 'index', 'epilogue']
+            
+            if st.checkbox(
+                f"**{folder_name.title()}**",
+                value=default_selected,
+                key=f"default_folder_{folder_name}",
+                help=folder_desc
+            ):
+                selected_folders.append(folder_name)
+    
+    # Show preview of selected folders
+    if selected_folders:
+        st.markdown("**Selected folders to create:**")
+        safe_code = FolderManager.sanitize_name(config['code'])
+        book_name = config['book_name']
+        base_name = f"{safe_code}_{book_name}"
+        
+        # Apply font formatting to preview
+        from core.text_formatter import TextFormatter
+        font_case = SessionManager.get_font_case()
+        
+        for folder in selected_folders:
+            formatted_folder = TextFormatter.format_folder_name(folder, font_case)
+            preview_name = f"{base_name}_{formatted_folder}"
+            st.write(f"📁 `{preview_name}`")
+        
+        st.markdown("---")
+        
+        # Create button
+        col_create, col_skip = st.columns(2)
+        
+        with col_create:
+            if st.button("🏗️ Create Folder Structure", type="primary"):
+                create_folder_structure_with_selection(config, selected_folders)
+        
+        with col_skip:
+            if st.button("⏭️ Skip Default Folders", type="secondary"):
+                create_folder_structure_with_selection(config, [])
+    else:
+        st.info("No default folders selected. You can still create the project structure without default folders.")
+        if st.button("🏗️ Create Project Structure Only", type="primary"):
+            create_folder_structure_with_selection(config, [])
+
+
+def create_folder_structure_with_selection(config: dict, selected_folders: List[str]):
+    """Create the folder structure with selected default folders"""
     with st.spinner("Creating folder structure..."):
         code = config['code']
         book_name = config['book_name']
-        num_parts = config.get('num_parts', 0)
+        custom_parts = SessionManager.get('custom_parts', {})
         
-        project_path, created_folders = FolderManager.create_project_structure(code, book_name)
+        project_path, created_folders = FolderManager.create_project_structure(
+            code, book_name, selected_folders
+        )
         
         if project_path:
-            # Create parts folders if specified
-            if num_parts > 0:
+            # Create custom parts folders if specified
+            if custom_parts:
                 safe_code = FolderManager.sanitize_name(code)
-                # FIXED: Keep book name as-is instead of sanitizing
                 base_name = f"{safe_code}_{book_name}"
-                parts_folders = FolderManager.create_parts_folders(project_path, base_name, num_parts)
-                created_folders.extend(parts_folders)
+                custom_parts_folders = FolderManager.create_custom_parts_folders(
+                    project_path, base_name, custom_parts
+                )
+                created_folders.extend(custom_parts_folders)
             
             SessionManager.set('folder_structure_created', True)
             SessionManager.set('created_folders', created_folders)
             
-            display_creation_success(created_folders)
+            display_creation_success_with_selection(created_folders, custom_parts, selected_folders)
         else:
             st.error("Failed to create folder structure")
 
-def display_creation_success(created_folders: List[str]):
+
+def display_creation_success_with_selection(created_folders: List[str], custom_parts: dict, selected_folders: List[str]):
+    """Display success message with created folders including selection info"""
+    st.success("✅ Folder structure created successfully!")
+    
+    # Show summary
+    default_count = len(selected_folders)
+    custom_parts_count = len(custom_parts)
+    total_folders = len(created_folders)
+    
+    st.info(f"Created {total_folders} folders: {default_count} default folders + {custom_parts_count} custom parts")
+    
+    if selected_folders:
+        st.markdown("**Created default folders:**")
+        for folder in selected_folders:
+            st.write(f"📁 {folder.title()}")
+    
+    if custom_parts:
+        st.markdown("**Created custom parts:**")
+        for part_info in custom_parts.values():
+            st.write(f"🎯 {part_info['name']}")
+    
+    st.markdown("**All created folders:**")
+    for folder in created_folders:
+        folder_name = folder.split('/')[-1] if '/' in folder else folder.split('\\')[-1]
+        if any(part_info['name'] in folder_name for part_info in custom_parts.values()):
+            st.write(f"🎯 {folder}")  # Custom part folders
+        else:
+            st.write(f"📁 {folder}")  # Default folders
+
+def create_folder_structure(config: dict):
+    """Create the folder structure with custom parts"""
+    with st.spinner("Creating folder structure..."):
+        code = config['code']
+        book_name = config['book_name']
+        custom_parts = SessionManager.get('custom_parts', {})
+        
+        project_path, created_folders = FolderManager.create_project_structure(code, book_name)
+        
+        if project_path:
+            # Create custom parts folders if specified
+            if custom_parts:
+                safe_code = FolderManager.sanitize_name(code)
+                base_name = f"{safe_code}_{book_name}"
+                custom_parts_folders = FolderManager.create_custom_parts_folders(
+                    project_path, base_name, custom_parts
+                )
+                created_folders.extend(custom_parts_folders)
+            
+            SessionManager.set('folder_structure_created', True)
+            SessionManager.set('created_folders', created_folders)
+            
+            display_creation_success(created_folders, custom_parts)
+        else:
+            st.error("Failed to create folder structure")
+
+def display_creation_success(created_folders: List[str], custom_parts: dict):
     """Display success message with created folders"""
     st.success("✅ Folder structure created successfully!")
+    
+    # Show summary
+    default_count = len(FolderManager.DEFAULT_FOLDERS)
+    custom_parts_count = len(custom_parts)
+    total_folders = len(created_folders)
+    
+    st.info(f"Created {total_folders} folders: {default_count} default folders + {custom_parts_count} custom parts")
+    
     st.markdown("**Created folders:**")
     for folder in created_folders:
-        st.write(f"📁 {folder}")
+        folder_name = folder.split('/')[-1] if '/' in folder else folder.split('\\')[-1]
+        if any(part_info['name'] in folder_name for part_info in custom_parts.values()):
+            st.write(f"🎯 {folder}")  # Custom part folders
+        else:
+            st.write(f"📁 {folder}")  # Default folders
 
 def render_stats_section():
     """Render statistics section"""
@@ -2067,10 +3516,11 @@ def display_project_stats():
     total_pages = SessionManager.get('total_pages')
     config = SessionManager.get('project_config', {})
     chapters_config = SessionManager.get('chapters_config', {})
+    custom_parts = SessionManager.get('custom_parts', {})
     
     st.metric("PDF Pages", total_pages)
     st.metric("Project Code", config.get('code', 'Not set'))
-    st.metric("Parts Planned", config.get('num_parts', 0))
+    st.metric("Custom Parts", len(custom_parts))
     
     # Chapter statistics
     total_chapters = sum(len(chapters) for chapters in chapters_config.values())
@@ -2080,6 +3530,12 @@ def display_project_stats():
     if SessionManager.get('folder_structure_created'):
         created_folders = SessionManager.get('created_folders', [])
         st.metric("Folders Created", len(created_folders))
+    
+    # Show custom part names
+    if custom_parts:
+        st.markdown("**Custom Parts:**")
+        for part_info in custom_parts.values():
+            st.write(f"🎯 {part_info['name']}")
 
 
 # ===== File: src/ui/page_assignment.py =====
@@ -2092,8 +3548,25 @@ from core.folder_manager import FolderManager, ChapterManager
 from pathlib import Path
 import os
 
+
 def render_page_assignment_page():
     """Render the page assignment and extraction page"""
+    
+    # Check if folder browser returned a selection
+    if st.session_state.get('selected_page_destination'):
+        selected_path = st.session_state['selected_page_destination']
+        selected_name = st.session_state['selected_page_destination_name']
+        
+        st.success(f"Folder selected from browser: {selected_name}")
+        
+        # Clear the browser selection
+        del st.session_state['selected_page_destination']
+        del st.session_state['selected_page_destination_name']
+        
+        # Proceed with this destination
+        destination_info = (selected_path, selected_name)
+        render_page_range_input(destination_info)
+        return
     
     # Check prerequisites
     if not SessionManager.get('folder_structure_created'):
@@ -2108,7 +3581,6 @@ def render_page_assignment_page():
         extraction_info = st.session_state.get('last_extraction_info', {})
         st.success(f"✅ Successfully extracted {extraction_info.get('pages_count', 0)} pages!")
         st.info(f"📂 Files saved to: `{extraction_info.get('destination', 'Unknown')}`")
-        # Clear the flag
         st.session_state['extraction_just_completed'] = False
     
     # Main layout
@@ -2130,12 +3602,13 @@ def render_prerequisites_warning():
     3. Create folder structure
     """)
 
+
 def render_assignment_interface():
     """Render the main page assignment interface"""
     
     st.markdown("### 📂 Select Destination")
     
-    # Single unified destination selection approach
+    # Show destination selection options - simplified to only 2 options
     destination_mode = st.radio(
         "Choose destination method:",
         ["Select from project folders", "Browse for any folder"],
@@ -2143,13 +3616,19 @@ def render_assignment_interface():
         key="destination_mode_radio"
     )
     
+    destination_info = None
+    
     if destination_mode == "Select from project folders":
         destination_info = render_project_folder_selection()
-    else:
+    else:  # Browse for any folder
         destination_info = render_system_folder_browser()
     
+    # Only show page range input if we have a valid destination
     if destination_info and destination_info[0]:
         render_page_range_input(destination_info)
+    else:
+        st.info("Please select a destination folder first")
+
 
 def render_project_folder_selection() -> Tuple[str, str]:
     """Render project folder selection with browse interface"""
@@ -2306,56 +3785,65 @@ def get_chapters_for_part(part_number: int) -> List[Dict]:
     chapters_info.sort(key=sort_key)
     return chapters_info
 
+
 def render_system_folder_browser() -> Tuple[str, str]:
-    """Render system-wide folder browser with manual path input"""
+    """Render system-wide folder browser for page extraction"""
     
-    st.markdown("**Specify any folder on your system:**")
+    st.markdown("**Choose destination:**")
     
-    # Get initial value (empty if extraction was just completed)
-    initial_path = "" if st.session_state.get('extraction_just_completed') else ""
+    # Check if we should show the browser
+    if st.button("📂 Browse for Folder", key="open_browser_btn", type="primary"):
+        st.session_state['show_folder_browser'] = True
+        st.session_state['folder_browser_active'] = True
+        st.session_state['folder_browser_context'] = 'page_assignment'
+        st.rerun()
     
-    # Direct path input with unique key
-    path_input_key = f"custom_folder_path_{hash(str(st.session_state.get('last_extraction_info', {}))) % 10000}"
-    custom_folder_path = st.text_input(
-        "Destination Folder Path",
-        value=initial_path,
-        placeholder="e.g., C:\\Users\\YourName\\Documents\\MyFolder or /home/user/MyFolder",
-        help="Enter the complete path where you want to extract pages",
-        key=path_input_key
+    # Quick selection options
+    st.markdown("**Or select quickly:**")
+    from src.ui.folder_selector import get_quick_access_folders
+    
+    quick_folders = get_quick_access_folders()
+    
+    for name, path in quick_folders.items():
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.write(f"📁 {name}")
+            st.caption(path)
+        with col2:
+            if st.button("Select", key=f"select_{name.replace(' ', '_')}"):
+                return (path, Path(path).name)
+    
+    # Manual input
+    st.markdown("**Or enter path manually:**")
+    manual_path = st.text_input(
+        "Folder path:",
+        placeholder="Enter full path to destination folder",
+        key="manual_path_input"
     )
     
-    if custom_folder_path.strip():
-        folder_path = Path(custom_folder_path.strip())
-        
-        # Validate path
-        if folder_path.exists() and folder_path.is_dir():
-            st.success(f"✅ Valid folder: {folder_path.absolute()}")
-            return (str(folder_path.absolute()), folder_path.name)
-        elif not folder_path.exists():
-            st.warning("⚠️ Folder doesn't exist. It will be created during extraction.")
-            return (str(folder_path.absolute()), folder_path.name)
-        else:
-            st.error("❌ Invalid path or not a directory")
+    if manual_path.strip():
+        path = Path(manual_path.strip())
+        if st.button("Use This Path", key="use_manual_path"):
+            return (str(path.absolute()), path.name)
     
     return ("", "")
 
+
 def get_project_path(base_name: str) -> Path:
-    """Get the project path using consistent resolution"""
-    current_dir = Path.cwd()
+    """Get the project path using project destination"""
+    # Use project destination instead of current directory
+    project_destination = SessionManager.get_project_destination()
+    if project_destination and os.path.exists(project_destination):
+        base_path = Path(project_destination)
+    else:
+        base_path = Path.cwd()
     
-    possible_paths = [
-        Path(base_name),
-        current_dir / base_name,
-        Path.cwd() / base_name
-    ]
+    project_path = base_path / base_name
     
-    for path in possible_paths:
-        if path.exists():
-            return path
+    if not project_path.exists():
+        # Create if doesn't exist
+        project_path.mkdir(parents=True, exist_ok=True)
     
-    # Create if doesn't exist
-    project_path = current_dir / base_name
-    project_path.mkdir(parents=True, exist_ok=True)
     return project_path
 
 def get_project_folders_with_metadata(project_path: Path) -> List[tuple]:
@@ -2420,14 +3908,21 @@ def get_project_folders_with_metadata(project_path: Path) -> List[tuple]:
     except Exception:
         return []
 
+
 def render_page_range_input(destination_info: Tuple[str, str]):
     """Render page range input and extraction controls"""
     
     destination_path, naming_base = destination_info
     
-    st.markdown("### 📄 Page Range Assignment")
+    st.markdown("### Page Range Assignment")
     st.markdown(f"**Selected Destination:** `{Path(destination_path).name}`")
-    st.caption(f"📍 Full path: {destination_path}")
+    st.caption(f"Full path: {destination_path}")
+    
+    # Verify the destination exists and show status
+    if os.path.exists(destination_path):
+        st.success("Destination folder is accessible")
+    else:
+        st.info("Destination folder will be created during extraction")
     
     total_pages = SessionManager.get('total_pages', 0)
     
@@ -2452,7 +3947,7 @@ def render_page_range_input(destination_info: Tuple[str, str]):
     with col1:
         preview_disabled = not page_ranges_text.strip()
         preview_key = f"preview_btn_{hash(destination_path + str(preview_disabled)) % 10000}"
-        if st.button("📋 Preview Assignment", type="secondary", disabled=preview_disabled, key=preview_key):
+        if st.button("Preview Assignment", type="secondary", disabled=preview_disabled, key=preview_key):
             if page_ranges_text.strip():
                 page_ranges = [r.strip() for r in page_ranges_text.split(',') if r.strip()]
                 render_assignment_preview(Path(destination_path).name, page_ranges, total_pages, naming_base)
@@ -2460,9 +3955,11 @@ def render_page_range_input(destination_info: Tuple[str, str]):
     with col2:
         extract_disabled = not page_ranges_text.strip()
         extract_key = f"extract_btn_{hash(destination_path + str(extract_disabled)) % 10000}"
-        if st.button("🚀 Extract Pages", type="primary", disabled=extract_disabled, key=extract_key):
+        if st.button("Extract Pages", type="primary", disabled=extract_disabled, key=extract_key):
             if page_ranges_text.strip():
                 page_ranges = [r.strip() for r in page_ranges_text.split(',') if r.strip()]
+                # Debug: Confirm destination before extraction
+                st.info(f"Starting extraction to: {destination_path}")
                 execute_page_extraction(destination_info, page_ranges, total_pages)
     
     # Show preview of page ranges if text is entered
@@ -2474,6 +3971,7 @@ def render_page_range_input(destination_info: Tuple[str, str]):
             st.error(preview)
         else:
             st.info(preview)
+
 
 def render_assignment_preview(display_name: str, page_ranges: List[str], total_pages: int, naming_base: str):
     """Render preview of page assignment"""
@@ -2500,8 +3998,10 @@ def render_assignment_preview(display_name: str, page_ranges: List[str], total_p
     else:
         st.error("No valid pages found in the specified ranges")
         
+
+
 def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List[str], total_pages: int):
-    """Execute the page extraction process with proper path resolution"""
+    """Execute the page extraction process"""
     
     destination_path, naming_base = destination_info
     folder_path = Path(destination_path)
@@ -2511,7 +4011,7 @@ def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List
         if folder_path.exists():
             existing_pdfs = list(folder_path.glob("*.pdf"))
             if existing_pdfs:
-                st.warning(f"⚠️ Destination folder already contains {len(existing_pdfs)} PDF files. New files will be added alongside existing ones.")
+                st.warning(f"Destination folder already contains {len(existing_pdfs)} PDF files. New files will be added alongside existing ones.")
         
         # Ensure the folder exists
         folder_path.mkdir(parents=True, exist_ok=True)
@@ -2524,8 +4024,9 @@ def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List
         status_text.text(f"Extracting pages to {folder_path.name}...")
         progress_bar.progress(20)
         
+        # Pass the exact path without any modification
         success, created_files, error_msg = PDFExtractor.extract_pages_to_folder(
-            page_ranges, str(folder_path), naming_base, total_pages
+            page_ranges, destination_path, naming_base, total_pages
         )
         
         progress_bar.progress(100)
@@ -2535,7 +4036,7 @@ def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List
             extraction_history = SessionManager.get('extraction_history', [])
             extraction_record = {
                 'destination': folder_path.name,
-                'destination_path': str(folder_path.absolute()),
+                'destination_path': destination_path,
                 'pages_extracted': len(created_files),
                 'page_ranges': page_ranges,
                 'files_created': created_files,
@@ -2547,7 +4048,7 @@ def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List
             # Store extraction info for success message
             st.session_state['last_extraction_info'] = {
                 'pages_count': len(created_files),
-                'destination': str(folder_path.absolute())
+                'destination': destination_path
             }
             st.session_state['extraction_just_completed'] = True
             
@@ -2561,23 +4062,15 @@ def execute_page_extraction(destination_info: Tuple[str, str], page_ranges: List
         elif success and not created_files:
             progress_bar.empty()
             status_text.empty()
-            st.warning("⚠️ No pages were extracted. Please check your page ranges.")
+            st.warning("No pages were extracted. Please check your page ranges.")
         else:
             progress_bar.empty()
             status_text.empty()
-            st.error(f"❌ Extraction failed: {error_msg}")
+            st.error(f"Extraction failed: {error_msg}")
     
-    except FileExistsError:
-        st.error(f"❌ Some files already exist in the destination folder. Please clean the folder or choose a different destination.")
-    except PermissionError:
-        st.error(f"❌ Permission denied. Cannot write to folder '{folder_path.name}'. Please check folder permissions.")
     except Exception as e:
-        if "No space left" in str(e).lower():
-            st.error(f"❌ Insufficient disk space to extract files. Please free up space and try again.")
-        elif "access denied" in str(e).lower():
-            st.error(f"❌ Access denied. Please check if the folder is open in another application.")
-        else:
-            st.error(f"❌ Extraction error: {str(e)}")
+        st.error(f"Extraction error: {str(e)}")
+
 
 def render_assignment_summary():
     """Render summary of page assignments and extractions"""
@@ -2660,11 +4153,16 @@ def get_progress_steps() -> List[Tuple[str, bool]]:
 
 # ===== File: src/ui/sidebar.py =====
 
-# src/ui/sidebar.py
+# src/ui/sidebar.py - Modified to use lazy imports
 import streamlit as st
+import json
+import os
+from pathlib import Path
+from datetime import datetime
 from core.session_manager import SessionManager
 from core.pdf_handler import PDFHandler
 from core.folder_manager import FolderManager
+from ui.font_selector import render_font_case_changer
 
 def render_sidebar():
     """Render sidebar with project configuration"""
@@ -2672,13 +4170,310 @@ def render_sidebar():
     with st.sidebar:
         st.header("🔧 Project Configuration")
         
+        # Project management section
+        render_project_management_section()
+        
         render_pdf_upload_section()
         render_project_details_section()
-        render_parts_configuration_section()
+        render_custom_parts_configuration_section()
+        
+        # NEW: Add font case changer
+        render_font_case_changer()
+
+        from ui.folder_selector import render_destination_folder_selector
+
+        render_destination_folder_selector()
+
+def get_projects_dir():
+    """Get or create projects directory"""
+    projects_dir = Path("saved_projects")
+    projects_dir.mkdir(exist_ok=True)
+    return projects_dir
+
+def get_existing_projects():
+    """Get list of existing project files with formatted display"""
+    projects_dir = get_projects_dir()
+    project_files = list(projects_dir.glob("*.json"))
+    
+    project_list = []
+    for f in project_files:
+        try:
+            # Parse the filename to extract info
+            parts = f.stem.split('_')
+            
+            # Find the timestamp part (starts with 4-digit year)
+            timestamp_start = None
+            for i, part in enumerate(parts):
+                if len(part) >= 4 and part[:4].isdigit():
+                    timestamp_start = i
+                    break
+            
+            if timestamp_start:
+                # Extract project info and timestamp
+                project_info = '_'.join(parts[:timestamp_start])
+                timestamp_str = '_'.join(parts[timestamp_start:])
+                
+                # Parse timestamp for display
+                try:
+                    timestamp = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
+                    display_name = f"{project_info} ({timestamp.strftime('%Y-%m-%d %H:%M:%S')})"
+                except ValueError:
+                    # Fallback if timestamp parsing fails
+                    display_name = f.stem
+            else:
+                # Old format or no timestamp
+                display_name = f.stem
+            
+            project_list.append({
+                'filename': f.stem,
+                'display_name': display_name,
+                'modified': f.stat().st_mtime
+            })
+            
+        except Exception:
+            # Fallback for any parsing issues
+            project_list.append({
+                'filename': f.stem,
+                'display_name': f.stem,
+                'modified': f.stat().st_mtime
+            })
+    
+    # Sort by modification time (newest first)
+    project_list.sort(key=lambda x: x['modified'], reverse=True)
+    
+    return project_list
+
+def render_project_management_section():
+    """Render project management controls"""
+    st.subheader("📁 Project Management")
+    
+    # Load existing projects list
+    existing_projects = get_existing_projects()
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🆕 New Project", type="secondary"):
+            create_new_project()
+            st.rerun()
+    
+    with col2:
+        if st.button("💾 Save Project", type="secondary"):
+            save_current_project()
+    
+    # Load existing project dropdown
+    if existing_projects:
+        st.markdown("**Load Existing Project:**")
+        
+        # Create dropdown options with display names
+        project_options = [""] + [p['display_name'] for p in existing_projects]
+        project_filenames = [""] + [p['filename'] for p in existing_projects]
+        
+        selected_index = st.selectbox(
+            "Select Project",
+            range(len(project_options)),
+            format_func=lambda x: "Choose a project..." if x == 0 else project_options[x],
+            key="project_load_select"
+        )
+        
+        if selected_index > 0:
+            selected_filename = project_filenames[selected_index]
+            selected_display = project_options[selected_index]
+            
+            col_load, col_delete = st.columns(2)
+            
+            with col_load:
+                if st.button("📂 Load", key="load_project_btn"):
+                    load_project(selected_filename)
+                    st.success(f"✅ Loaded project: {selected_display}")
+                    st.rerun()
+            
+            with col_delete:
+                if st.button("🗑️ Delete", key="delete_project_btn"):
+                    delete_project(selected_filename)
+                    st.success(f"✅ Deleted project: {selected_display}")
+                    st.rerun()
+    
+    # Show current project status
+    current_project = SessionManager.get('current_project_name')
+    if current_project:
+        # Format current project name for display
+        display_current = format_project_display_name(current_project)
+        st.info(f"📋 Current: **{display_current}**")
+    else:
+        st.info("📋 No project loaded")
+    
+    st.markdown("---")
+
+def create_new_project():
+    """Create a new project by clearing current session"""
+    # Clear all session state except essential UI state
+    keys_to_preserve = ['current_step']  # Add any UI state you want to preserve
+    
+    new_session = {}
+    for key in keys_to_preserve:
+        if key in st.session_state:
+            new_session[key] = st.session_state[key]
+    
+    st.session_state.clear()
+    
+    # Restore preserved keys
+    for key, value in new_session.items():
+        st.session_state[key] = value
+    
+    # Initialize fresh session
+    SessionManager.initialize_session()
+    
+    # Clear current project name
+    SessionManager.set('current_project_name', None)
+
+def format_project_display_name(project_name):
+    """Format project name for display with timestamp parsing"""
+    try:
+        parts = project_name.split('_')
+        
+        # Find the timestamp part (starts with 4-digit year)
+        timestamp_start = None
+        for i, part in enumerate(parts):
+            if len(part) >= 4 and part[:4].isdigit():
+                timestamp_start = i
+                break
+        
+        if timestamp_start:
+            project_info = '_'.join(parts[:timestamp_start])
+            timestamp_str = '_'.join(parts[timestamp_start:])
+            
+            try:
+                timestamp = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
+                return f"{project_info} ({timestamp.strftime('%Y-%m-%d %H:%M:%S')})"
+            except ValueError:
+                pass
+        
+        return project_name
+        
+    except Exception:
+        return project_name
+
+
+def save_current_project():
+    """Save current project to file with timestamp"""
+    config = SessionManager.get('project_config', {})
+    
+    if not config.get('code') or not config.get('book_name'):
+        st.error("❌ Cannot save: Project code and book name are required")
+        return
+    
+    # Create filename with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"{config['code']}_{config['book_name']}"
+    project_name = f"{base_name}_{timestamp}"
+    
+    projects_dir = get_projects_dir()
+    project_file = projects_dir / f"{project_name}.json"
+    
+    try:
+        # Collect all project data including destinations
+        project_data = {
+            'project_config': SessionManager.get('project_config', {}),
+            'pdf_uploaded': SessionManager.get('pdf_uploaded', False),
+            'pdf_file_name': SessionManager.get('pdf_file').name if SessionManager.get('pdf_file') else None,
+            'total_pages': SessionManager.get('total_pages', 0),
+            'folder_structure_created': SessionManager.get('folder_structure_created', False),
+            'created_folders': SessionManager.get('created_folders', []),
+            'chapters_config': SessionManager.get('chapters_config', {}),
+            'chapters_created': SessionManager.get('chapters_created', False),
+            'folder_metadata': SessionManager.get('folder_metadata', {}),
+            'numbering_systems': SessionManager.get('numbering_systems', {}),
+            'chapter_suffixes': SessionManager.get('chapter_suffixes', {}),
+            'extraction_history': SessionManager.get('extraction_history', []),
+            'custom_parts': SessionManager.get('custom_parts', {}),
+            'font_case_selected': SessionManager.get('font_case_selected', False),
+            'selected_font_case': SessionManager.get('selected_font_case', 'First Capital (Sentence case)'),
+            'default_destination_folder': SessionManager.get('default_destination_folder', ''),
+            'destination_folder_selected': SessionManager.get('destination_folder_selected', False),
+            'project_destination_folder': SessionManager.get('project_destination_folder', ''),  # NEW
+            'project_destination_selected': SessionManager.get('project_destination_selected', False),  # NEW
+            'saved_timestamp': timestamp,
+            'saved_datetime': datetime.now().isoformat()
+        }
+        
+        # Save to JSON file
+        with open(project_file, 'w') as f:
+            json.dump(project_data, f, indent=2)
+        
+        # Update current project name
+        SessionManager.set('current_project_name', project_name)
+        
+        # Format display name for success message
+        display_name = format_project_display_name(project_name)
+        st.success(f"✅ Project saved as: {display_name}")
+        
+    except Exception as e:
+        st.error(f"❌ Error saving project: {str(e)}")
+
+def load_project(project_name):
+    """Load project from file"""
+    projects_dir = get_projects_dir()
+    project_file = projects_dir / f"{project_name}.json"
+    
+    if not project_file.exists():
+        st.error(f"❌ Project file not found: {project_name}")
+        return
+    
+    try:
+        with open(project_file, 'r') as f:
+            project_data = json.load(f)
+        
+        # Clear current session and load project data
+        st.session_state.clear()
+        SessionManager.initialize_session()
+        
+        # Restore project data
+        for key, value in project_data.items():
+            if key == 'pdf_file_name':
+                # Handle PDF file separately - user will need to re-upload
+                if value:
+                    SessionManager.set('expected_pdf_name', value)
+            else:
+                SessionManager.set(key, value)
+        
+        # Set current project name
+        SessionManager.set('current_project_name', project_name)
+        
+        # If PDF was previously uploaded, show message to re-upload
+        if project_data.get('pdf_uploaded') and project_data.get('pdf_file_name'):
+            st.warning(f"⚠️ Please re-upload your PDF file: {project_data['pdf_file_name']}")
+            # Reset PDF-related flags until file is re-uploaded
+            SessionManager.set('pdf_uploaded', False)
+            SessionManager.set('pdf_file', None)
+        
+    except Exception as e:
+        st.error(f"❌ Error loading project: {str(e)}")
+
+def delete_project(project_name):
+    """Delete project file"""
+    projects_dir = get_projects_dir()
+    project_file = projects_dir / f"{project_name}.json"
+    
+    try:
+        if project_file.exists():
+            os.remove(project_file)
+        
+        # If this was the current project, clear it
+        if SessionManager.get('current_project_name') == project_name:
+            SessionManager.set('current_project_name', None)
+            
+    except Exception as e:
+        st.error(f"❌ Error deleting project: {str(e)}")
 
 def render_pdf_upload_section():
     """Render PDF upload section"""
     st.subheader("Step 1: Upload PDF")
+    
+    # Show expected PDF name if loading a saved project
+    expected_pdf = SessionManager.get('expected_pdf_name')
+    if expected_pdf:
+        st.info(f"📄 Expected PDF: {expected_pdf}")
     
     uploaded_file = st.file_uploader(
         "Choose a PDF file",
@@ -2686,22 +4481,59 @@ def render_pdf_upload_section():
         help="Upload the main PDF book that you want to organize"
     )
     
-    if uploaded_file is not None and not SessionManager.get('pdf_uploaded'):
-        handle_pdf_upload(uploaded_file)
+    if uploaded_file is not None:
+        # Check if this matches expected PDF name
+        if expected_pdf and uploaded_file.name != expected_pdf:
+            st.warning(f"⚠️ Uploaded PDF name '{uploaded_file.name}' doesn't match expected '{expected_pdf}'. This may cause issues.")
+        
+        if not SessionManager.get('pdf_uploaded'):
+            handle_pdf_upload(uploaded_file)
+        else:
+            # Allow re-uploading different PDF
+            if st.button("🔄 Use This PDF Instead"):
+                handle_pdf_upload(uploaded_file)
     elif SessionManager.get('pdf_uploaded'):
         display_pdf_success()
 
 def handle_pdf_upload(uploaded_file):
-    """Handle PDF file upload and processing"""
-    with st.spinner("Loading PDF..."):
+    """Handle PDF file upload and processing with improved large file handling"""
+    file_size_mb = len(uploaded_file.getvalue()) / (1024 * 1024)
+    
+    with st.spinner(f"Loading PDF ({file_size_mb:.1f}MB)... This may take a moment for large files."):
+        # Show progress for large files
+        if file_size_mb > 100:
+            progress_bar = st.progress(0)
+            progress_bar.progress(25, "Reading PDF content...")
+            
         pdf_reader, total_pages = PDFHandler.load_pdf_info(uploaded_file)
+        
+        if file_size_mb > 100:
+            progress_bar.progress(75, "Processing PDF structure...")
         
         if pdf_reader and total_pages > 0:
             SessionManager.set('pdf_file', uploaded_file)
             SessionManager.set('total_pages', total_pages)
             SessionManager.set('pdf_uploaded', True)
+            
+            # Clear expected PDF name if it was set
+            if SessionManager.get('expected_pdf_name'):
+                SessionManager.set('expected_pdf_name', None)
+            
+            if file_size_mb > 100:
+                progress_bar.progress(100, "PDF loaded successfully!")
+                progress_bar.empty()
+            
             st.success(f"PDF loaded successfully! Total pages: {total_pages}")
+            
+            # Show memory usage warning for very large files
+            if file_size_mb > 200:
+                st.warning(f"⚠️ Large file ({file_size_mb:.1f}MB) loaded. Page extraction may take longer than usual.")
+            
             st.rerun()
+        else:
+            if file_size_mb > 100:
+                progress_bar.empty()
+            st.error("Failed to load PDF. Please check if the file is valid and not corrupted.")
 
 def display_pdf_success():
     """Display success message for uploaded PDF"""
@@ -2712,51 +4544,164 @@ def display_pdf_success():
         st.success(f"✅ PDF loaded: {pdf_file.name}")
         st.info(f"Total pages: {total_pages}")
 
+
 def render_project_details_section():
-    """Render project details input section"""
-    if not SessionManager.get('pdf_uploaded'):
+    """Render project details input section with font formatting"""
+    if not SessionManager.get('pdf_uploaded') and not SessionManager.get('expected_pdf_name'):
         return
     
     st.subheader("Step 2: Project Details")
     
     config = SessionManager.get('project_config', {})
+    font_case = SessionManager.get_font_case()
+    
+    # Show current font formatting
+    st.caption(f"Font formatting: {font_case}")
     
     code = st.text_input(
         "Project Code",
-        value=config.get('code', ''),
+        value=config.get('original_code', config.get('code', '')),
         placeholder="e.g., CS101",
-        help="Short code identifier for the project"
+        help=f"Short code identifier (will be formatted as: {font_case})"
     )
     
     book_name = st.text_input(
         "Book Name",
-        value=config.get('book_name', ''),
+        value=config.get('original_book_name', config.get('book_name', '')),
         placeholder="e.g., Data Structures and Algorithms",
-        help="Book name (will be kept as-is in folder names)"
+        help=f"Book name (will be formatted as: {font_case}, no underscores added)"
     )
     
     if code and book_name:
-        SessionManager.update_config({'code': code, 'book_name': book_name})
+        # Apply font formatting properly
+        from core.text_formatter import TextFormatter
+        
+        formatted_code = TextFormatter.format_text(code, font_case)
+        formatted_book_name = TextFormatter.format_text(book_name, font_case)
+        
+        SessionManager.update_config({
+            'code': formatted_code, 
+            'book_name': formatted_book_name,
+            'original_code': code,
+            'original_book_name': book_name
+        })
+        
+        # Show preview with proper formatting
+        safe_code = FolderManager.sanitize_name(formatted_code)
+        preview_name = f"{safe_code}_{formatted_book_name}"
+        if preview_name != f"{code}_{book_name}":
+            st.info(f"Preview: `{preview_name}`")
 
-def render_parts_configuration_section():
-    """Render parts configuration section"""
+
+def render_custom_parts_configuration_section():
+    """Render custom parts configuration section with individual part creation"""
     config = SessionManager.get('project_config', {})
     
     if not (config.get('code') and config.get('book_name')):
         return
     
-    st.subheader("Step 3: Parts Setup")
+    st.subheader("Step 3: Custom Parts Setup")
+    st.markdown("Create custom-named parts for your book (e.g., 'India', 'Iran', 'History', etc.)")
     
-    num_parts = st.number_input(
-        "Number of Parts",
-        min_value=0,
-        max_value=100,
-        value=config.get('num_parts', 0),
-        step=1,
-        help="How many main parts does the book have?"
-    )
+    # Get existing custom parts
+    custom_parts = SessionManager.get('custom_parts', {})
     
-    SessionManager.update_config({'num_parts': num_parts})
+    # Add new custom part section
+    st.markdown("**Add New Part:**")
     
-    if num_parts > 0:
-        st.info(f"Will create {num_parts} part folders")
+    # Show current font case for reference
+    font_case = SessionManager.get_font_case()
+    st.caption(f"Font formatting: {font_case}")
+    
+    # Check if we just added a part to clear the input
+    input_value = ""
+    if st.session_state.get('part_just_added'):
+        st.session_state['part_just_added'] = False
+        input_value = ""
+    else:
+        input_value = st.session_state.get('part_input_value', "")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        new_part_name = st.text_input(
+            "Part Name",
+            value=input_value,
+            placeholder="e.g., India, Iran, History, Mathematics",
+            help=f"Enter a custom name for this part (will be formatted as: {font_case})",
+            key="new_part_name_input"
+        )
+        
+        # Store the current value
+        st.session_state['part_input_value'] = new_part_name
+    
+    with col2:
+        if st.button("➕ Add Part", type="primary", disabled=not new_part_name.strip()):
+            if new_part_name.strip():
+                add_custom_part(new_part_name.strip(), custom_parts)
+                # Set flag to clear input on next render
+                st.session_state['part_just_added'] = True
+                st.session_state['part_input_value'] = ""
+                st.rerun()
+    
+    # Display existing custom parts (READ-ONLY)
+    if custom_parts:
+        st.markdown("**Current Parts:**")
+        st.info("💡 Use Chapter Management tab to modify or delete parts after folder structure is created.")
+        
+        # Display parts without delete functionality
+        for part_id, part_info in custom_parts.items():
+            formatted_name = part_info.get('name', part_info.get('display_name', 'Unknown'))
+            original_name = part_info.get('original_name', '')
+            
+            st.write(f"📂 **{formatted_name}**")
+            if original_name and original_name != formatted_name:
+                st.caption(f"Original: {original_name}")
+        
+        # Update the total count in config for compatibility
+        SessionManager.update_config({'num_parts': len(custom_parts)})
+        
+        st.info(f"Total parts configured: {len(custom_parts)}")
+    else:
+        st.info("No custom parts created yet. Add parts above to organize your book content.")
+        # Reset num_parts to 0 if no custom parts
+        SessionManager.update_config({'num_parts': 0})
+
+
+def add_custom_part(part_name: str, custom_parts: dict):
+    """Add a new custom part with font formatting"""
+    from core.text_formatter import TextFormatter
+    
+    font_case = SessionManager.get_font_case()
+    formatted_part_name = TextFormatter.format_text(part_name, font_case)
+    
+    # Generate unique ID for the part using formatted name
+    base_id = formatted_part_name.lower().replace(' ', '_').replace('-', '_')
+    part_id = f"part_{len(custom_parts) + 1}_{base_id}"
+    
+    # Ensure unique ID
+    counter = 1
+    original_id = part_id
+    while part_id in custom_parts:
+        part_id = f"{original_id}_{counter}"
+        counter += 1
+    
+    # Add to custom parts
+    custom_parts[part_id] = {
+        'name': formatted_part_name,
+        'display_name': formatted_part_name,
+        'original_name': part_name,
+        'created_timestamp': datetime.now().isoformat()
+    }
+    
+    SessionManager.set('custom_parts', custom_parts)
+    st.success(f"Added part: '{formatted_part_name}'")
+
+
+def delete_custom_part(part_id: str, custom_parts: dict):
+    """Delete a custom part"""
+    if part_id in custom_parts:
+        part_name = custom_parts[part_id]['name']
+        del custom_parts[part_id]
+        SessionManager.set('custom_parts', custom_parts)
+        st.success(f"✅ Deleted part: '{part_name}'")

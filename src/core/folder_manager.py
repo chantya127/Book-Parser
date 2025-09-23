@@ -1,3 +1,5 @@
+# core/folder_manager.py - Modified to support standalone chapters
+
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 import streamlit as st
@@ -10,109 +12,18 @@ class FolderManager:
     DEFAULT_FOLDERS = ['prologue', 'index', 'epilogue']
     
     @staticmethod
-    def create_project_structure(code: str, book_name: str) -> Tuple[Optional[Path], List[str]]:
-        """
-        Create the basic project folder structure
-        
-        Args:
-            code: Project code
-            book_name: Book name (kept as is, no sanitization)
-            
-        Returns:
-            Tuple of (project path, list of created folders)
-        """
-        if not code or not book_name:
-            return None, []
-        
-        try:
-            # Sanitize only the code, keep book name as is
-            safe_code = FolderManager.sanitize_name(code)
-            base_name = f"{safe_code}_{book_name}"  # Book name kept as is
-            
-            # Create main project folder
-            project_path = Path(base_name)
-            project_path.mkdir(exist_ok=True)
-            
-            created_folders = []
-            
-            # Create default folders
-            for folder in FolderManager.DEFAULT_FOLDERS:
-                folder_path = project_path / f"{base_name}_{folder}"
-                folder_path.mkdir(exist_ok=True)
-                created_folders.append(str(folder_path.absolute()))
-            
-            return project_path, created_folders
-            
-        except Exception as e:
-            st.error(f"Error creating folder structure: {str(e)}")
-            return None, []
-    
-    @staticmethod
-    def create_parts_folders(project_path: Path, base_name: str, num_parts: int) -> List[str]:
-        """Create part folders"""
-        created_parts = []
-        
-        try:
-            for i in range(1, num_parts + 1):
-                part_folder = project_path / f"{base_name}_Part_{i}"
-                part_folder.mkdir(exist_ok=True)
-                created_parts.append(str(part_folder.absolute()))
-            
-            return created_parts
-        except Exception as e:
-            st.error(f"Error creating part folders: {str(e)}")
-            return []
-    
-    @staticmethod
-    def create_custom_folder(project_path: Path, base_name: str, parent_folder_path: str, custom_folder_name: str, session_manager=None) -> Optional[str]:
-        """
-        Create a custom folder inside any existing folder with parent prefix + custom name
-        
-        Args:
-            project_path: Main project path
-            base_name: Base project name
-            parent_folder_path: Actual path of the parent folder
-            custom_folder_name: Name for the new custom folder (will be prefixed with parent name)
-            session_manager: SessionManager instance to avoid circular import
-            
-        Returns:
-            Path of created folder or None if failed
-        """
-        try:
-            # Import only when needed to avoid circular imports
-            if session_manager is None:
-                from core.session_manager import SessionManager
-                session_manager = SessionManager
-            
-            parent_path = Path(parent_folder_path)
-            parent_folder_name = parent_path.name
-            
-            # FIXED: Create folder with parent prefix + custom name (following project convention)
-            final_folder_name = f"{parent_folder_name}_{custom_folder_name}"
-            custom_folder_path = parent_path / final_folder_name
-            custom_folder_path.mkdir(exist_ok=True)
-            
-            # Generate unique ID for the custom folder
-            custom_folder_id = f"custom_{random.randint(10000, 99999)}"
-            
-            # Store metadata
-            folder_metadata = session_manager.get('folder_metadata', {})
-            folder_metadata[custom_folder_id] = {
-                'display_name': f"{parent_folder_name} → {custom_folder_name}",
-                'actual_path': str(custom_folder_path.absolute()),
-                'type': 'custom',
-                'parent_path': parent_folder_path,
-                'folder_name': final_folder_name,  # Full name with prefix
-                'naming_base': final_folder_name   # Use full name for file naming
-            }
-            
-            session_manager.set('folder_metadata', folder_metadata)
-            return str(custom_folder_path.absolute())
-            
-        except Exception as e:
-            st.error(f"Error creating custom folder: {str(e)}")
-            return None
-    
+    def get_default_folder_options() -> List[Dict[str, str]]:
+        """Get available default folder options with descriptions"""
+        return [
+            {'name': 'prologue', 'description': 'Introduction or preface content'},
+            {'name': 'index', 'description': 'Table of contents, index, or reference pages'},
+            {'name': 'epilogue', 'description': 'Conclusion, appendix, or closing content'},
+            {'name': 'bibliography', 'description': 'References and citations'},
+            {'name': 'glossary', 'description': 'Terms and definitions'},
+            {'name': 'exercises', 'description': 'Practice problems and solutions'},
+            {'name': 'notes', 'description': 'Additional notes and annotations'}
+        ]
+
     @staticmethod
     def sanitize_name(name: str) -> str:
         """Sanitize name for folder creation"""
@@ -127,83 +38,282 @@ class FolderManager:
         
         return name[:50]  # Limit length
     
+    
+
     @staticmethod
-    def get_folder_preview(code: str, book_name: str, num_parts: int = 0) -> List[str]:
-        """Generate preview of folder structure"""
+    def create_project_structure(code: str, book_name: str, selected_folders: List[str] = None) -> Tuple[Optional[Path], List[str]]:
+        """
+        Create the basic project folder structure with selected default folders in specified location
+        """
         if not code or not book_name:
+            return None, []
+        
+        try:
+            # Lazy import to avoid circular dependency
+            from core.text_formatter import TextFormatter
+            from core.session_manager import SessionManager
+            
+            # Get font case and apply formatting
+            font_case = st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+            formatted_code = TextFormatter.format_project_code(code, font_case)
+            formatted_book_name = TextFormatter.format_book_name(book_name, font_case)
+            
+            # Sanitize the code but keep book name as-is with only font formatting
+            safe_code = FolderManager.sanitize_name(formatted_code)
+            base_name = f"{safe_code}_{formatted_book_name}"
+            
+            # Get project destination - if set, use it; otherwise use current directory
+            project_destination = SessionManager.get_project_destination()
+            if project_destination and os.path.exists(project_destination):
+                base_path = Path(project_destination)
+            else:
+                base_path = Path.cwd()
+            
+            # Create main project folder in the specified location
+            project_path = base_path / base_name
+            project_path.mkdir(exist_ok=True)
+            
+            created_folders = []
+            
+            # Create only selected default folders with formatting
+            if selected_folders:
+                for folder in selected_folders:
+                    formatted_folder = TextFormatter.format_folder_name(folder, font_case)
+                    folder_path = project_path / f"{base_name}_{formatted_folder}"
+                    folder_path.mkdir(exist_ok=True)
+                    created_folders.append(str(folder_path.absolute()))
+            
+            return project_path, created_folders
+            
+        except Exception as e:
+            st.error(f"Error creating folder structure: {str(e)}")
+            return None, []
+
+
+    @staticmethod
+    def create_custom_parts_folders(project_path: Path, base_name: str, custom_parts: Dict) -> List[str]:
+        """Create custom named part folders with font formatting"""
+        created_parts = []
+        
+        try:
+            # Lazy import to avoid circular dependency
+            from core.text_formatter import TextFormatter
+            font_case = st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+            
+            for part_id, part_info in custom_parts.items():
+                part_name = part_info['name']
+                # Apply additional formatting if needed
+                formatted_part_name = TextFormatter.format_part_name(part_name, font_case)
+                
+                # Create folder with format: {base_name}_{formatted_part_name}
+                part_folder = project_path / f"{base_name}_{formatted_part_name}"
+                part_folder.mkdir(exist_ok=True)
+                created_parts.append(str(part_folder.absolute()))
+            
+            return created_parts
+        except Exception as e:
+            st.error(f"Error creating custom part folders: {str(e)}")
             return []
-        
-        safe_code = FolderManager.sanitize_name(code)
-        base_name = f"{safe_code}_{book_name}"  # Book name kept as is
-        preview = []
-        
-        # Default folders
-        for folder in FolderManager.DEFAULT_FOLDERS:
-            preview.append(f"{base_name}_{folder}")
-        
-        # Part folders
-        for i in range(1, num_parts + 1):
-            preview.append(f"{base_name}_Part_{i}")
-        
-        return preview
 
 
 class ChapterManager:
-    """Manages chapter creation and organization within parts"""
+    """Manages chapter creation and organization within parts and standalone"""
+    
     
     @staticmethod
     def generate_chapter_folder_name(parent_folder: str, chapter_number: str = None, 
-                                   chapter_name: str = None) -> str:
+                                chapter_name: str = None) -> str:
         """
         Generate chapter folder name following the convention:
-        {base_project_name}_Chapter_{chapter_number}_{chapter_name}
+        {base_project_name}_Chapter {chapter_number}_{chapter_name}
         
         Args:
-            parent_folder: Parent folder name (e.g., CS101_DataStructures_Part_1)
-            chapter_number: Chapter number (can be None)
+            parent_folder: Parent folder name
+            chapter_number: Chapter number (can be None or NULL sequence format)
             chapter_name: Chapter name (can be None)
             
         Returns:
-            Properly formatted chapter folder name
+            Properly formatted chapter folder name with correct spacing
         """
-        # Extract base name by removing the part suffix
+        # Extract base name by removing the part suffix or use as-is for standalone
         if "_Part_" in parent_folder:
             base_name = parent_folder.split("_Part_")[0]
         else:
-            base_name = parent_folder
+            # For custom parts or standalone chapters, find the base 
+            parts = parent_folder.split("_")
+            if len(parts) >= 3:
+                base_name = "_".join(parts[:-1]) if not ChapterManager.is_project_root_folder(parent_folder) else parent_folder
+            else:
+                base_name = parent_folder
         
         # Handle missing values with improved formatting
         if chapter_number is None or chapter_number.strip() == "":
-            chapter_num = "null"
+            chapter_num = "Null_Null Name"
         else:
             chapter_num = chapter_number.strip()
         
         if chapter_name is None or chapter_name.strip() == "":
-            chapter_nm = "Null_Name"  # Better formatting for null names
+            chapter_nm = "Null_Name"
         else:
-            # FIXED: Don't sanitize chapter name - keep it as is to avoid underscores
             chapter_nm = chapter_name.strip()
         
-        # If both are null, add random number for uniqueness
-        if chapter_num == "null" and chapter_nm == "Null_Name":
+        # Generate folder name with proper spacing: Chapter {number}_{name}
+        # Note: Single space after "Chapter", underscore before chapter name
+        if chapter_nm == "Null_Name" and chapter_num == "Null_Null Name":
+            import random
             random_num = random.randint(10000, 99999)
-            return f"{base_name}_Chapter_{chapter_num}_{chapter_nm}_{random_num}"
+            return f"{base_name}_Chapter {chapter_num}_{random_num}"
         
-        return f"{base_name}_Chapter_{chapter_num}_{chapter_nm}"
+        return f"{base_name}_Chapter {chapter_num}_{chapter_nm}"
+
+    @staticmethod
+    def is_project_root_folder(folder_path: str) -> bool:
+        """Check if the folder is the project root (for standalone chapters)"""
+        # Project root folders typically follow pattern: {code}_{book_name}
+        # and don't contain _Part_ or other suffixes
+        return "_Part_" not in folder_path and not any(suffix in folder_path for suffix in ["_prologue", "_index", "_epilogue"])
     
     @staticmethod
-    def generate_unique_chapter_id(base_name: str, part_number: int) -> str:
-        """Generate unique identifier for chapter"""
+    def generate_unique_chapter_id(base_name: str, parent_identifier: str, is_standalone: bool = False) -> str:
+        """Generate unique identifier for chapter - works with numbered, custom parts, and standalone"""
         from core.session_manager import SessionManager
         counter = SessionManager.get('unique_chapter_counter', 0) + 1
         SessionManager.set('unique_chapter_counter', counter)
-        return f"{base_name}_part_{part_number}_chapter_{counter}"
+        
+        if is_standalone:
+            return f"{base_name}_standalone_chapter_{counter}"
+        else:
+            return f"{base_name}_part_{parent_identifier}_chapter_{counter}"
+    
+    @staticmethod
+    def create_standalone_chapter_folders(project_path: Path, base_name: str, chapters: List[Dict]) -> List[str]:
+        """
+        Create standalone chapter folders directly under project root
+        
+        Args:
+            project_path: Main project path
+            base_name: Base project name
+            chapters: List of chapter dictionaries with 'number' and 'name'
+            
+        Returns:
+            List of created chapter folder paths
+        """
+        from core.session_manager import SessionManager
+        
+        created_chapters = []
+        
+        try:
+            # Ensure project folder exists
+            project_path.mkdir(exist_ok=True)
+            folder_metadata = SessionManager.get('folder_metadata', {})
+            
+            for chapter in chapters:
+                # Generate unique ID for metadata tracking
+                chapter_id = ChapterManager.generate_unique_chapter_id(
+                    base_name, "standalone", is_standalone=True
+                )
+                
+                # Generate proper chapter folder name using base project name
+                chapter_folder_name = ChapterManager.generate_chapter_folder_name(
+                    base_name,  # Use base_name directly for standalone chapters
+                    chapter.get('number'),
+                    chapter.get('name')
+                )
+                
+                # Create actual folder with the complete naming convention
+                chapter_path = project_path / chapter_folder_name
+                chapter_path.mkdir(exist_ok=True)
+                
+                # Store metadata mapping
+                display_name = f"Standalone → {chapter_folder_name}"
+                folder_metadata[chapter_id] = {
+                    'display_name': display_name,
+                    'actual_path': str(chapter_path.absolute()),
+                    'type': 'standalone_chapter',
+                    'parent_type': 'standalone',
+                    'chapter_number': chapter.get('number', ''),
+                    'chapter_name': chapter.get('name', ''),
+                    'naming_base': chapter_folder_name,  # Full name for file naming
+                    'folder_name': chapter_folder_name   # Complete folder name
+                }
+                
+                created_chapters.append(str(chapter_path.absolute()))
+            
+            SessionManager.set('folder_metadata', folder_metadata)
+            return created_chapters
+        except Exception as e:
+            st.error(f"Error creating standalone chapter folders: {str(e)}")
+            return []
+    
+    @staticmethod
+    def create_chapter_folders_for_custom_part(project_path: Path, base_name: str, 
+                                            part_name: str, chapters: List[Dict]) -> List[str]:
+        """
+        Create chapter folders within a custom named part
+        
+        Args:
+            project_path: Main project path
+            base_name: Base project name
+            part_name: Custom part name (e.g., "India", "Iran")
+            chapters: List of chapter dictionaries with 'number' and 'name'
+            
+        Returns:
+            List of created chapter folder paths
+        """
+        from core.session_manager import SessionManager
+        
+        created_chapters = []
+        part_folder_name = f"{base_name}_{part_name}"
+        part_path = project_path / part_folder_name
+        
+        try:
+            # Ensure part folder exists
+            part_path.mkdir(exist_ok=True)
+            folder_metadata = SessionManager.get('folder_metadata', {})
+            
+            for chapter in chapters:
+                # Generate unique ID for metadata tracking
+                chapter_id = ChapterManager.generate_unique_chapter_id(base_name, part_name.lower())
+                
+                # Generate proper chapter folder name with full parent prefix
+                chapter_folder_name = ChapterManager.generate_chapter_folder_name(
+                    part_folder_name,
+                    chapter.get('number'),
+                    chapter.get('name')
+                )
+                
+                # Create actual folder with the complete naming convention
+                chapter_path = part_path / chapter_folder_name
+                chapter_path.mkdir(exist_ok=True)
+                
+                # Store metadata mapping
+                display_name = f"{part_name} → {chapter_folder_name}"
+                folder_metadata[chapter_id] = {
+                    'display_name': display_name,
+                    'actual_path': str(chapter_path.absolute()),
+                    'type': 'chapter',
+                    'parent_part_name': part_name,
+                    'parent_part_type': 'custom',
+                    'chapter_number': chapter.get('number', ''),
+                    'chapter_name': chapter.get('name', ''),
+                    'naming_base': chapter_folder_name,  # Full name for file naming
+                    'folder_name': chapter_folder_name   # Complete folder name
+                }
+                
+                created_chapters.append(str(chapter_path.absolute()))
+            
+            SessionManager.set('folder_metadata', folder_metadata)
+            return created_chapters
+        except Exception as e:
+            st.error(f"Error creating chapter folders for {part_name}: {str(e)}")
+            return []
     
     @staticmethod
     def create_chapter_folders(project_path: Path, base_name: str, part_number: int, 
                              chapters: List[Dict]) -> List[str]:
         """
         Create chapter folders within a part with proper naming convention
+        KEPT FOR BACKWARD COMPATIBILITY - use create_chapter_folders_for_custom_part for new implementations
         
         Args:
             project_path: Main project path
@@ -227,7 +337,7 @@ class ChapterManager:
             
             for chapter in chapters:
                 # Generate unique ID for metadata tracking
-                chapter_id = ChapterManager.generate_unique_chapter_id(base_name, part_number)
+                chapter_id = ChapterManager.generate_unique_chapter_id(base_name, str(part_number))
                 
                 # Generate proper chapter folder name with full parent prefix
                 chapter_folder_name = ChapterManager.generate_chapter_folder_name(
@@ -247,6 +357,7 @@ class ChapterManager:
                     'actual_path': str(chapter_path.absolute()),
                     'type': 'chapter',
                     'parent_part': part_number,
+                    'parent_part_type': 'numbered',
                     'chapter_number': chapter.get('number', ''),
                     'chapter_name': chapter.get('name', ''),
                     'naming_base': chapter_folder_name,  # Full name for file naming
@@ -310,14 +421,20 @@ class ChapterManager:
             return False
     
     @staticmethod
-    def get_chapters_preview(base_name: str, part_number: int, chapters: List[Dict]) -> List[str]:
-        """Generate preview of chapter folder names"""
+    def get_chapters_preview(base_name: str, parent_identifier: str, chapters: List[Dict], is_custom_part: bool = False, is_standalone: bool = False) -> List[str]:
+        """Generate preview of chapter folder names - supports numbered, custom parts, and standalone chapters"""
         preview = []
-        part_folder_name = f"{base_name}_part_{part_number}"
+        
+        if is_standalone:
+            parent_folder_name = base_name  # Use base name directly for standalone
+        elif is_custom_part:
+            parent_folder_name = f"{base_name}_{parent_identifier}"
+        else:
+            parent_folder_name = f"{base_name}_part_{parent_identifier}"
         
         for chapter in chapters:
             chapter_folder_name = ChapterManager.generate_chapter_folder_name(
-                part_folder_name,
+                parent_folder_name,
                 chapter.get('number'),
                 chapter.get('name')
             )
@@ -336,10 +453,25 @@ class ChapterManager:
         if not chapters:
             return False, "No chapters defined"
         
-        # Check for duplicate chapter numbers (if provided and not null)
-        numbers = [ch.get('number') for ch in chapters 
-                  if ch.get('number') and ch.get('number') != '' and ch.get('number') != 'null']
-        if len(numbers) != len(set(numbers)):
-            return False, "Duplicate chapter numbers found"
+        # Check for duplicate chapter numbers, but skip NULL sequence chapters
+        # since they're supposed to have the same "NULL" number
+        numbers_to_check = []
+        for ch in chapters:
+            chapter_number = ch.get('number')
+            is_null_sequence = ch.get('is_null_sequence', False)
+            
+            # Only check for duplicates if:
+            # 1. It's not a NULL sequence chapter
+            # 2. The number is not empty/null
+            # 3. The number is not literally "NULL"
+            if (not is_null_sequence and 
+                chapter_number and 
+                chapter_number.strip() != '' and 
+                not chapter_number.upper().startswith('NULL')):
+                numbers_to_check.append(chapter_number)
+        
+        # Check for duplicates only among non-NULL sequence chapters
+        if len(numbers_to_check) != len(set(numbers_to_check)):
+            return False, "Duplicate chapter numbers found (excluding NULL sequence chapters)"
         
         return True, ""

@@ -1,3 +1,5 @@
+# core/session_manager.py - Modified to avoid circular imports
+
 import streamlit as st
 from typing import Dict, Any
 
@@ -11,23 +13,43 @@ class SessionManager:
             'project_config': {},
             'pdf_uploaded': False,
             'pdf_file': None,
-            'pdf_content': None,  # Store PDF content to avoid re-reading
+            'pdf_content': None,
             'total_pages': 0,
             'folder_structure_created': False,
             'created_folders': [],
-            'chapters_config': {},  # {part_1: [chapters], part_2: [chapters]}
+            'chapters_config': {},
+            'standalone_chapters': [],
             'current_step': 1,
             'chapters_created': False,
-            'page_assignments': {},  # Track page assignments
-            'extraction_history': [],  # Track completed extractions
-            'folder_metadata': {},  # {folder_id: {display_name, actual_path, type}}
-            'unique_chapter_counter': 0,  # For ensuring unique chapter identifiers
-            'numbering_systems': {},  # {Part_1: numbering_system, Part_2: numbering_system}
+            'page_assignments': {},
+            'extraction_history': [],
+            'folder_metadata': {},
+            'unique_chapter_counter': 0,
+            'numbering_systems': {},
+            'chapter_suffixes': {},
+            'custom_parts': {},
+            'font_case_selected': True,
+            'selected_font_case': 'First Capital (Title Case)',
+            'project_destination_folder': '',  # NEW: For project structure location
+            'project_destination_selected': False,  # NEW: Track if project destination is set
         }
         
         for key, value in defaults.items():
             if key not in st.session_state:
                 st.session_state[key] = value
+
+    @staticmethod
+    def get_chapter_suffix(context_key: str) -> str:
+        """Get chapter suffix for a specific context"""
+        chapter_suffixes = SessionManager.get('chapter_suffixes', {})
+        return chapter_suffixes.get(context_key, "")
+
+    @staticmethod
+    def set_chapter_suffix(context_key: str, suffix: str):
+        """Set chapter suffix for a specific context"""
+        chapter_suffixes = SessionManager.get('chapter_suffixes', {})
+        chapter_suffixes[context_key] = suffix
+        SessionManager.set('chapter_suffixes', chapter_suffixes)
     
     @staticmethod
     def get(key: str, default=None):
@@ -45,3 +67,36 @@ class SessionManager:
         if 'project_config' not in st.session_state:
             st.session_state.project_config = {}
         st.session_state.project_config.update(updates)
+    
+    @staticmethod
+    def get_font_case() -> str:
+        """Get current font case setting"""
+        return st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+    
+    @staticmethod
+    def set_font_case(font_case: str):
+        """Set font case and mark as selected"""
+        st.session_state['selected_font_case'] = font_case
+        st.session_state['font_case_selected'] = True
+
+    @staticmethod
+    def get_default_destination() -> str:
+        """Get default destination folder"""
+        return st.session_state.get('default_destination_folder', '')
+
+    @staticmethod
+    def set_default_destination(folder_path: str):
+        """Set default destination folder"""
+        st.session_state['default_destination_folder'] = folder_path
+        st.session_state['destination_folder_selected'] = True
+
+    @staticmethod
+    def get_project_destination() -> str:
+        """Get project destination folder"""
+        return st.session_state.get('project_destination_folder', '')
+
+    @staticmethod
+    def set_project_destination(folder_path: str):
+        """Set project destination folder"""
+        st.session_state['project_destination_folder'] = folder_path
+        st.session_state['project_destination_selected'] = True

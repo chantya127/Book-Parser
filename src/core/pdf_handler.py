@@ -11,7 +11,7 @@ class PDFHandler:
     @staticmethod
     def load_pdf_info(uploaded_file) -> Tuple[Optional[PyPDF2.PdfReader], int]:
         """
-        Load PDF and extract basic information with memory optimization
+        Load PDF and extract basic information with optimized memory handling
         
         Args:
             uploaded_file: Streamlit uploaded file object
@@ -20,42 +20,65 @@ class PDFHandler:
             Tuple of (PDF reader object, total pages)
         """
         try:
-            # For large files, avoid storing full content in session
-            # Instead, store file info and reload when needed
+            # Always read and store the full content for reliability
+            # Reset file pointer to beginning
+            uploaded_file.seek(0)
             file_content = uploaded_file.read()
+            
+            # Validate we actually got content
+            if not file_content or len(file_content) == 0:
+                st.error("PDF file appears to be empty or corrupted")
+                return None, 0
+            
             pdf_reader = PyPDF2.PdfReader(BytesIO(file_content))
             total_pages = len(pdf_reader.pages)
             
-            # Store file info instead of full content for large files
+            # Store file content in session state for ALL files
+            # For memory management, we'll handle this differently
             file_size_mb = len(file_content) / (1024 * 1024)
-            if file_size_mb > 100:  # Only store content for files smaller than 100MB
-                st.session_state.pdf_file_name = uploaded_file.name
+            
+            if file_size_mb > 100:
+                st.info(f"Large PDF detected ({file_size_mb:.1f}MB). Processing may take longer.")
+                # Still store content but warn about memory usage
+                st.session_state.pdf_content = file_content
                 st.session_state.pdf_large_file = True
-                st.info(f"Large PDF detected ({file_size_mb:.1f}MB). Using optimized memory handling.")
             else:
                 st.session_state.pdf_content = file_content
                 st.session_state.pdf_large_file = False
             
+            # Also store file name for reference
+            st.session_state.pdf_file_name = uploaded_file.name
+            
             return pdf_reader, total_pages
+            
         except Exception as e:
             st.error(f"Error reading PDF: {str(e)}")
             return None, 0
     
     @staticmethod
     def get_pdf_reader() -> Optional[PyPDF2.PdfReader]:
-        """Get PDF reader from stored content or reload from file"""
+        """Get PDF reader from stored content"""
         try:
-            # Check if we have content stored (for smaller files)
+            # Always try to get from stored content first
             pdf_content = st.session_state.get('pdf_content')
             if pdf_content:
                 return PyPDF2.PdfReader(BytesIO(pdf_content))
             
-            # For large files, get from the uploaded file directly
+            # Fallback: try to get from uploaded file (may not work for large files)
             pdf_file = st.session_state.get('pdf_file')
             if pdf_file:
-                return PyPDF2.PdfReader(BytesIO(pdf_file.read()))
+                try:
+                    pdf_file.seek(0)
+                    file_content = pdf_file.read()
+                    if file_content:
+                        return PyPDF2.PdfReader(BytesIO(file_content))
+                except:
+                    pass
             
+            # If all else fails, show helpful error
+            st.error("PDF content not available. Please re-upload your PDF file.")
             return None
+            
         except Exception as e:
             st.error(f"Error accessing PDF: {str(e)}")
             return None
@@ -65,8 +88,13 @@ class PDFHandler:
         """Validate if uploaded file is a proper PDF"""
         try:
             uploaded_file.seek(0)  # Reset file pointer
-            pdf_reader = PyPDF2.PdfReader(BytesIO(uploaded_file.read()))
+            content = uploaded_file.read()
             uploaded_file.seek(0)  # Reset for future reads
+            
+            if not content or len(content) == 0:
+                return False
+                
+            pdf_reader = PyPDF2.PdfReader(BytesIO(content))
             return len(pdf_reader.pages) > 0
         except:
             return False
@@ -77,18 +105,9 @@ class PDFExtractor:
     
     @staticmethod
     def extract_pages_to_folder(page_ranges: List[str], destination_folder: str, 
-                              naming_base: str, total_pages: int) -> Tuple[bool, List[str], str]:
+                            naming_base: str, total_pages: int) -> Tuple[bool, List[str], str]:
         """
         Extract specified pages from PDF and save to destination folder with sequential numbering
-        
-        Args:
-            page_ranges: List of page range strings (e.g., ["1-5", "10", "15-20"])
-            destination_folder: Target folder path
-            naming_base: Base name for file naming (should include full hierarchy)
-            total_pages: Total pages in PDF for validation
-            
-        Returns:
-            Tuple of (success, list of created files, error message)
         """
         try:
             # Parse page ranges into individual page numbers
@@ -100,17 +119,29 @@ class PDFExtractor:
             # Get PDF reader
             pdf_reader = PDFHandler.get_pdf_reader()
             if not pdf_reader:
-                return False, [], "Could not access PDF file"
+                pdf_content = st.session_state.get('pdf_content')
+                if pdf_content:
+                    try:
+                        from io import BytesIO
+                        import PyPDF2
+                        pdf_reader = PyPDF2.PdfReader(BytesIO(pdf_content))
+                    except Exception as e:
+                        return False, [], f"Could not access PDF file: {str(e)}"
+                
+                if not pdf_reader:
+                    return False, [], "Could not access PDF file. Please re-upload your PDF."
+            
+            # Use the destination_folder exactly as provided
+            dest_path = Path(destination_folder)
             
             # Create destination folder if it doesn't exist
-            dest_path = Path(destination_folder)
             dest_path.mkdir(parents=True, exist_ok=True)
             
             created_files = []
             failed_pages = []
             
-            # Extract each page with sequential numbering (starting from 1)
-            for sequential_num, actual_page_num in enumerate(pages_to_extract, 1):
+            # Extract each page
+            for idx, (sequential_num, actual_page_num) in enumerate(enumerate(pages_to_extract, 1)):
                 success, file_path = PDFExtractor.extract_single_page(
                     pdf_reader, actual_page_num, dest_path, naming_base, sequential_num
                 )
@@ -130,22 +161,13 @@ class PDFExtractor:
             
         except Exception as e:
             return False, [], f"Error extracting pages: {str(e)}"
+
     
     @staticmethod
     def extract_single_page(pdf_reader: PyPDF2.PdfReader, actual_page_num: int, 
-                          dest_path: Path, naming_base: str, sequential_page_num: int = None) -> Tuple[bool, str]:
+                        dest_path: Path, naming_base: str, sequential_page_num: int = None) -> Tuple[bool, str]:
         """
-        Extract a single page from PDF with proper naming convention and sequential numbering
-        
-        Args:
-            pdf_reader: PDF reader object
-            actual_page_num: Actual page number in PDF to extract (1-indexed)
-            dest_path: Destination folder path
-            naming_base: Complete naming base including parent folder hierarchy
-            sequential_page_num: Sequential page number for file naming (starts from 1)
-            
-        Returns:
-            Tuple of (success, file_path)
+        Extract a single page from PDF with proper naming convention and correct spacing
         """
         try:
             # Validate page number
@@ -154,21 +176,29 @@ class PDFExtractor:
             
             # Create new PDF with single page
             pdf_writer = PyPDF2.PdfWriter()
-            pdf_writer.add_page(pdf_reader.pages[actual_page_num - 1])  # Convert to 0-indexed
+            pdf_writer.add_page(pdf_reader.pages[actual_page_num - 1])
             
             # Use sequential numbering if provided, otherwise use actual page number
             page_num_for_filename = sequential_page_num if sequential_page_num is not None else actual_page_num
             
-            # Generate file name using the complete naming base with sequential numbering
-            safe_naming_base = PDFExtractor.sanitize_filename(naming_base)
-            file_name = f"{safe_naming_base}_Page_{page_num_for_filename}.pdf"
+            # Apply font formatting to the page number text
+            import streamlit as st
+            from core.text_formatter import TextFormatter
+            font_case = st.session_state.get('selected_font_case', 'First Capital (Title Case)')
+            formatted_page_num = TextFormatter.format_text(str(page_num_for_filename), font_case)
+            
+            # Generate file name with proper spacing - KEEP THE SPACE
+            # Don't sanitize the naming_base if it already has proper formatting
+            file_name = f"{naming_base}_Page {formatted_page_num}.pdf"
+            
+            # Use the exact dest_path provided
             file_path = dest_path / file_name
             
             # Write PDF file
             with open(file_path, 'wb') as output_file:
                 pdf_writer.write(output_file)
             
-            return True, str(file_path)
+            return True, str(file_path.absolute())
             
         except Exception as e:
             st.error(f"Error extracting page {actual_page_num}: {str(e)}")
