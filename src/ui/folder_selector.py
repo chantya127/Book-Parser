@@ -70,19 +70,19 @@ def render_folder_browser_in_main():
     current_path = Path(st.session_state['browser_path']).absolute()
     
     # Current location display
-    st.info(f"📍 Current location: {current_path}")
+    st.info(f"📍 **Current:** `{current_path}`")
     
     # Navigation controls
-    col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
+    col1, col2, col3, col4 = st.columns([1, 1, 3, 1])
     
     with col1:
-        if st.button("🏠 Home", key="nav_home"):
+        if st.button("🏠 Home", key="nav_home", use_container_width=True):
             st.session_state['browser_path'] = str(Path.home().absolute())
             st.rerun()
     
     with col2:
         if current_path.parent != current_path:
-            if st.button("⬆️ Up", key="nav_up"):
+            if st.button("⬆️ Up", key="nav_up", use_container_width=True):
                 st.session_state['browser_path'] = str(current_path.parent.absolute())
                 st.rerun()
     
@@ -92,55 +92,53 @@ def render_folder_browser_in_main():
         else:
             button_text = "✅ SET PROJECT LOCATION"
             
-        if st.button(button_text, key="select_folder", type="primary"):
+        if st.button(button_text, key="select_folder", type="primary", use_container_width=True):
             selected_path = str(current_path.absolute())
             
             if context == 'page_assignment':
-                # Store the selection for page assignment
                 st.session_state['selected_page_destination'] = selected_path
                 st.session_state['selected_page_destination_name'] = current_path.name
-                st.success(f"✅ Extraction destination selected: {current_path.name}")
+                st.success(f"Extraction destination selected: {current_path.name}")
                 st.session_state['show_folder_browser'] = False
             else:
                 SessionManager.set_project_destination(selected_path)
-                st.success(f"✅ Project location set: {current_path.name}")
+                st.success(f"Project location set: {current_path.name}")
                 st.session_state['show_project_browser'] = False
             
-            # Close browser
             st.session_state['folder_browser_active'] = False
             st.rerun()
     
     with col4:
-        if st.button("❌ Cancel", key="cancel_browser"):
+        if st.button("❌ Cancel", key="cancel_browser", use_container_width=True):
             st.session_state['folder_browser_active'] = False
             st.session_state['show_folder_browser'] = False
             st.session_state['show_project_browser'] = False
             st.rerun()
     
-    # Quick access buttons
-    st.markdown("**Quick Access:**")
-    quick_folders = get_quick_access_folders()
-    
-    if quick_folders:
-        cols = st.columns(len(quick_folders))
-        for i, (name, path) in enumerate(quick_folders.items()):
-            with cols[i]:
-                if st.button(name, key=f"quick_nav_{i}"):
-                    st.session_state['browser_path'] = path
-                    st.rerun()
-    
     st.markdown("---")
     
-    # CRITICAL: This is the folder listing section that was missing
+    # Quick access in expander
+    with st.expander("⚡ Quick Access", expanded=False):
+        quick_folders = get_quick_access_folders()
+        
+        if quick_folders:
+            quick_cols = st.columns(len(quick_folders))
+            for i, (name, path) in enumerate(quick_folders.items()):
+                with quick_cols[i]:
+                    if st.button(name, key=f"quick_nav_{i}", use_container_width=True):
+                        st.session_state['browser_path'] = path
+                        st.rerun()
+    
+    # Folder listing with full names visible
     try:
         folders = [item for item in current_path.iterdir() 
                   if item.is_dir() and not item.name.startswith('.')]
         folders.sort(key=lambda x: x.name.lower())
         
         if folders:
-            st.markdown("**📁 Available Folders:**")
+            st.markdown(f"**📁 Folders ({len(folders)}):**")
             
-            # Display folders in a grid
+            # Display folders in 3-column grid with full names
             cols_per_row = 3
             for i in range(0, len(folders), cols_per_row):
                 cols = st.columns(cols_per_row)
@@ -149,22 +147,24 @@ def render_folder_browser_in_main():
                     if j < len(cols):
                         with cols[j]:
                             folder_name = folder.name
-                            display_name = folder_name[:15] + "..." if len(folder_name) > 15 else folder_name
                             
-                            if st.button(f"📁 {display_name}", 
+                            # Show full folder name as button text (no truncation)
+                            # Button will auto-wrap text if needed
+                            if st.button(f"📁 {folder_name}", 
                                        key=f"folder_nav_{i}_{j}",
-                                       help=f"Navigate to: {folder_name}"):
+                                       use_container_width=True):
                                 st.session_state['browser_path'] = str(folder.absolute())
                                 st.rerun()
         else:
-            st.info("📂 No subfolders found in this directory")
+            st.info("📂 No subfolders in this directory")
             
     except PermissionError:
-        st.error("❌ Permission denied accessing this folder")
+        st.error("❌ Permission denied")
     except Exception as e:
-        st.error(f"❌ Error reading folder: {str(e)}")
+        st.error(f"❌ Error: {str(e)}")
     
     return True
+
 
 def get_quick_access_folders():
     """Get quick access folder shortcuts"""

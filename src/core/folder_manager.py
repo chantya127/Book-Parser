@@ -135,6 +135,14 @@ class ChapterManager:
         Returns:
             Properly formatted chapter folder name with correct spacing
         """
+        # Import here to avoid circular dependency
+        import streamlit as st
+        from core.text_formatter import TextFormatter
+        
+        # Get font case and format "Chapter" text
+        font_case = st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+        formatted_chapter_text = TextFormatter.format_text("Chapter", font_case)
+        
         # Extract base name by removing the part suffix or use as-is for standalone
         if "_Part_" in parent_folder:
             base_name = parent_folder.split("_Part_")[0]
@@ -157,14 +165,13 @@ class ChapterManager:
         else:
             chapter_nm = chapter_name.strip()
         
-        # Generate folder name with proper spacing: Chapter {number}_{name}
-        # Note: Single space after "Chapter", underscore before chapter name
+        # Generate folder name with formatted "Chapter" text: {formatted_Chapter} {number}_{name}
         if chapter_nm == "Null_Name" and chapter_num == "Null_Null Name":
             import random
             random_num = random.randint(10000, 99999)
-            return f"{base_name}_Chapter {chapter_num}_{random_num}"
+            return f"{base_name}_{formatted_chapter_text} {chapter_num}_{random_num}"
         
-        return f"{base_name}_Chapter {chapter_num}_{chapter_nm}"
+        return f"{base_name}_{formatted_chapter_text} {chapter_num}_{chapter_nm}"
 
     @staticmethod
     def is_project_root_folder(folder_path: str) -> bool:

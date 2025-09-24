@@ -72,10 +72,10 @@ def render_font_case_selector():
         st.markdown("---")
         st.info("💡 You can change the font formatting later from the sidebar settings.")
 
-
 def render_font_case_changer():
     """Render font case changer for sidebar with radio buttons"""
     from core.text_formatter import TextFormatter
+    from core.session_manager import SessionManager
     
     if st.session_state.get('font_case_selected'):
         st.markdown("---")
@@ -89,10 +89,6 @@ def render_font_case_changer():
         except ValueError:
             current_index = 2
         
-        # Initialize the previous selection in session state if not exists
-        if 'previous_font_selection' not in st.session_state:
-            st.session_state['previous_font_selection'] = current_font_case
-        
         # Simple radio button selection
         selected_font_case = st.radio(
             "Select font format:",
@@ -102,12 +98,10 @@ def render_font_case_changer():
             help="Choose how all text elements are formatted"
         )
         
-        # Only process change if it's actually different from previous selection
-        # AND if the folder structure hasn't been created yet (to prevent unwanted refreshes)
-        from src.core.session_manager import SessionManager
-        
-        if (selected_font_case != st.session_state['previous_font_selection'] and 
-            not SessionManager.get('folder_structure_created')):
+        # Update session state whenever selection changes
+        if selected_font_case != current_font_case:
+            st.session_state['selected_font_case'] = selected_font_case
+            SessionManager.set_font_case(selected_font_case)
             
             st.markdown("**Preview:**")
             sample_texts = ["CS101", "Data Structures", "Advanced Topics"]
@@ -116,12 +110,8 @@ def render_font_case_changer():
                 formatted = TextFormatter.format_text(sample, selected_font_case)
                 st.write(f"`{formatted}`")
             
-            # Update both current and previous selections
-            st.session_state['selected_font_case'] = selected_font_case
-            st.session_state['previous_font_selection'] = selected_font_case
             st.success(f"Font format updated to: {selected_font_case}")
-            # Don't call st.rerun() here to prevent the refresh issue
-        elif selected_font_case != st.session_state['previous_font_selection']:
-            # Just update the selection without showing preview or rerunning
-            st.session_state['selected_font_case'] = selected_font_case
-            st.session_state['previous_font_selection'] = selected_font_case
+            
+            # Only rerun if folder structure is not created
+            if not SessionManager.get('folder_structure_created'):
+                st.rerun()

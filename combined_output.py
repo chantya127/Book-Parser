@@ -1318,6 +1318,8 @@ class SessionManager:
             'selected_font_case': 'First Capital (Title Case)',
             'project_destination_folder': '',  # NEW: For project structure location
             'project_destination_selected': False,  # NEW: Track if project destination is set
+            'total_pages_generated': 0,  # NEW: Cache for generated pages count
+            'pages_calculated_timestamp': None,  # NEW: Last calculation timestamp
         }
         
         for key, value in defaults.items():
@@ -1591,10 +1593,174 @@ import streamlit as st
 from typing import Dict, List
 from core.session_manager import SessionManager
 from core.folder_manager import ChapterManager, FolderManager
-from core.chapter_utils import ChapterUtils, ChapterConfigManager, PartManager
+from core.chapter_utils import ChapterUtils, ChapterConfigManager, NumberingSystem, PartManager
 from pathlib import Path
 import shutil
 import os
+
+
+class ChapterOperations:
+    """Generic chapter operations for both standalone and part chapters"""
+    
+
+    @staticmethod
+    def create_single_chapter(config: Dict, context_key: str, chapter_data: Dict, is_standalone: bool = False, create_only: bool = False, chapter_index: int = None) -> bool:
+        """
+        Create a single chapter folder
+        
+        Args:
+            create_only: If True, don't add to session (folder already in list, just creating physical folder)
+            chapter_index: Index of chapter in list (used when create_only=True)
+        """
+        try:
+            safe_code = FolderManager.sanitize_name(config['code'])
+            book_name = config['book_name']
+            base_name = f"{safe_code}_{book_name}"
+            
+            project_destination = SessionManager.get_project_destination()
+            if project_destination and os.path.exists(project_destination):
+                base_path = Path(project_destination)
+            else:
+                base_path = Path.cwd()
+            
+            project_path = base_path / base_name
+            
+            if not project_path.exists():
+                project_path.mkdir(parents=True, exist_ok=True)
+            
+            with st.spinner(f"Creating chapter folder..."):
+                if is_standalone:
+                    created_folders = ChapterManager.create_standalone_chapter_folders(
+                        project_path, base_name, [chapter_data]
+                    )
+                else:
+                    created_folders = ChapterManager.create_chapter_folders_for_custom_part(
+                        project_path, base_name, context_key, [chapter_data]
+                    )
+            
+            if created_folders:
+                current_folders = SessionManager.get('created_folders', [])
+                current_folders.extend(created_folders)
+                SessionManager.set('created_folders', current_folders)
+                SessionManager.set('chapters_created', True)
+                
+                # Only add to session if not create_only (new chapter being added)
+                if not create_only:
+                    if is_standalone:
+                        standalone_chapters = SessionManager.get('standalone_chapters', [])
+                        standalone_chapters.append(chapter_data)
+                        SessionManager.set('standalone_chapters', standalone_chapters)
+                    else:
+                        chapters_config = SessionManager.get('chapters_config', {})
+                        if context_key not in chapters_config:
+                            chapters_config[context_key] = []
+                        chapters_config[context_key].append(chapter_data)
+                        SessionManager.set('chapters_config', chapters_config)
+                
+                return True
+            return False
+            
+        except Exception as e:
+            st.error(f"Error creating chapter: {str(e)}")
+            return False
+
+    @staticmethod
+    def delete_single_chapter(config: Dict, context_key: str, chapter_index: int, is_standalone: bool = False) -> bool:
+        """
+        Delete a single chapter folder and remove from session
+        """
+        try:
+            # Get chapters list
+            if is_standalone:
+                chapters = SessionManager.get('standalone_chapters', [])
+            else:
+                chapters_config = SessionManager.get('chapters_config', {})
+                chapters = chapters_config.get(context_key, [])
+            
+            if chapter_index >= len(chapters):
+                st.error("Invalid chapter index")
+                return False
+            
+            chapter = chapters[chapter_index]
+            
+            # Build chapter folder path
+            safe_code = FolderManager.sanitize_name(config['code'])
+            book_name = config['book_name']
+            base_name = f"{safe_code}_{book_name}"
+            
+            # Get project path
+            project_destination = SessionManager.get_project_destination()
+            if project_destination and os.path.exists(project_destination):
+                base_path = Path(project_destination)
+            else:
+                base_path = Path.cwd()
+            
+            project_path = base_path / base_name
+            
+            # Generate chapter folder name
+            if is_standalone:
+                parent_folder_name = base_name
+                chapter_folder_name = ChapterManager.generate_chapter_folder_name(
+                    parent_folder_name,
+                    chapter.get('number'),
+                    chapter.get('name')
+                )
+                chapter_path = project_path / chapter_folder_name
+            else:
+                parent_folder_name = f"{base_name}_{context_key}"
+                chapter_folder_name = ChapterManager.generate_chapter_folder_name(
+                    parent_folder_name,
+                    chapter.get('number'),
+                    chapter.get('name')
+                )
+                part_path = project_path / parent_folder_name
+                chapter_path = part_path / chapter_folder_name
+            
+            # Delete the physical folder
+            if chapter_path.exists():
+                with st.spinner(f"Deleting chapter folder..."):
+                    shutil.rmtree(chapter_path)
+            else:
+                st.warning(f"Chapter folder not found: {chapter_path.name}")
+            
+            # Remove from chapters list
+            chapters.pop(chapter_index)
+            
+            # Update session state
+            if is_standalone:
+                SessionManager.set('standalone_chapters', chapters)
+            else:
+                chapters_config = SessionManager.get('chapters_config', {})
+                chapters_config[context_key] = chapters
+                SessionManager.set('chapters_config', chapters_config)
+            
+            # Update created folders list
+            current_folders = SessionManager.get('created_folders', [])
+            chapter_path_str = str(chapter_path.absolute())
+            if chapter_path_str in current_folders:
+                current_folders.remove(chapter_path_str)
+            SessionManager.set('created_folders', current_folders)
+            
+            # Remove from metadata
+            folder_metadata = SessionManager.get('folder_metadata', {})
+            metadata_to_remove = []
+            for folder_id, metadata in folder_metadata.items():
+                if metadata.get('actual_path') == chapter_path_str:
+                    metadata_to_remove.append(folder_id)
+            
+            for folder_id in metadata_to_remove:
+                del folder_metadata[folder_id]
+            
+            SessionManager.set('folder_metadata', folder_metadata)
+            
+            return True
+            
+        except PermissionError:
+            st.error(f"Permission denied. Cannot delete chapter folder.")
+            return False
+        except Exception as e:
+            st.error(f"Error deleting chapter: {str(e)}")
+            return False
 
 def render_chapter_management_page():
     """Render the chapter management page"""
@@ -1877,13 +2043,16 @@ def render_chapter_details_optimized(context_key: str, chapters: List[Dict], con
     book_name = config['book_name']
     base_name = f"{safe_code}_{book_name}"
     
+    # Check which chapters already have folders created
+    created_chapter_indices = get_created_chapter_indices(config, context_key, chapters, is_standalone)
+    
     updated_chapters = []
     
     for i, chapter in enumerate(chapters):
-        col1, col2 = st.columns(2)
+        # Chapter number and name inputs with action buttons
+        col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
         
         with col1:
-            # For NULL sequence, show "NULL" as read-only
             if chapter.get('is_null_sequence'):
                 st.text_input(
                     "Number",
@@ -1894,44 +2063,69 @@ def render_chapter_details_optimized(context_key: str, chapters: List[Dict], con
                 )
                 chapter_number = chapter.get('number', '')
             else:
-                # Use the current chapter number as value
                 chapter_number = st.text_input(
                     "Number",
                     value=chapter.get('number', ''),
                     placeholder=f"e.g., {chapter.get('number', '')}",
                     key=f"{context_key}_chapter_num_{i}",
-                    help="Chapter number (auto-generated based on system)"
+                    help="Chapter number"
                 )
         
         with col2:
-            # For NULL sequence, show auto-generated name as read-only
             if chapter.get('is_null_sequence'):
                 st.text_input(
                     "Name",
                     value=chapter.get('name', ''),
                     key=f"{context_key}_chapter_name_{i}",
                     disabled=True,
-                    help="NULL sequence name (auto-generated: Name, Name (1), Name (2)...)"
+                    help="NULL sequence name (auto-generated)"
                 )
                 chapter_name = chapter.get('name', '')
             else:
                 chapter_name = st.text_input(
                     "Name",
                     value=chapter.get('name', ''),
-                    placeholder="e.g., Introduction, Overview (leave empty for 'Null Name')",
+                    placeholder="e.g., Introduction, Overview",
                     key=f"{context_key}_chapter_name_{i}",
-                    help="Leave empty to use 'Null Name' in folder naming"
+                    help="Chapter name"
                 )
         
-        # Apply font formatting to the inputs before storing (only for non-NULL sequence)
+        # Apply font formatting to current input values
         if not chapter.get('is_null_sequence'):
             formatted_chapter_number = TextFormatter.format_chapter_number(chapter_number, font_case) if chapter_number else ''
             formatted_chapter_name = TextFormatter.format_chapter_name(chapter_name, font_case) if chapter_name else ''
         else:
-            # Use the already formatted values from NULL sequence
             formatted_chapter_number = chapter_number
             formatted_chapter_name = chapter_name
         
+        with col3:
+            st.write("")
+            st.write("")
+            # Create button - only show if folder doesn't exist
+            if i not in created_chapter_indices:
+                if st.button("💾", key=f"create_chapter_{context_key}_{i}", help="Create this chapter folder"):
+                    chapter_to_create = {
+                        'number': formatted_chapter_number,
+                        'name': formatted_chapter_name,
+                        'is_null_sequence': chapter.get('is_null_sequence', False)
+                    }
+                    if ChapterOperations.create_single_chapter(config, context_key, chapter_to_create, is_standalone, create_only=True, chapter_index=i):
+                        st.success(f"Chapter folder created!")
+                        st.rerun()
+            else:
+                st.write("✅")  # Just show checkmark, no individual update
+        
+        with col4:
+            st.write("")
+            st.write("")
+            # Delete button - only show if folder exists
+            if i in created_chapter_indices:
+                if st.button("🗑️", key=f"delete_chapter_{context_key}_{i}", help="Delete this chapter folder"):
+                    if ChapterOperations.delete_single_chapter(config, context_key, i, is_standalone):
+                        st.success("Chapter deleted!")
+                        st.rerun()
+        
+        # Store updated chapter data
         updated_chapters.append({
             'number': formatted_chapter_number,
             'name': formatted_chapter_name,
@@ -1940,7 +2134,7 @@ def render_chapter_details_optimized(context_key: str, chapters: List[Dict], con
             'is_null_sequence': chapter.get('is_null_sequence', False)
         })
         
-        # Show preview of folder name with formatting
+        # Show preview and status
         if is_standalone:
             preview_name = ChapterManager.generate_chapter_folder_name(
                 base_name,
@@ -1954,18 +2148,157 @@ def render_chapter_details_optimized(context_key: str, chapters: List[Dict], con
                 formatted_chapter_name or None
             )
         
-        st.caption(f"📁 Folder: `{preview_name}`")
+        status_text = "✅ Created" if i in created_chapter_indices else "⏳ Not created"
+        st.caption(f"📁 Folder: `{preview_name}` | {status_text}")
         
         if i < len(chapters) - 1:
             st.markdown("---")
     
-    # Update session state
+    # Update session state with new values
     if is_standalone:
         SessionManager.set('standalone_chapters', updated_chapters)
     else:
         chapters_config = SessionManager.get('chapters_config', {})
         chapters_config[context_key] = updated_chapters
         SessionManager.set('chapters_config', chapters_config)
+
+def update_chapter_in_backend(config: Dict, context_key: str, chapter_index: int, old_folder_name: str, new_folder_name: str, is_standalone: bool, new_number: str, new_name: str) -> bool:
+    """Update chapter folder in backend when any field changes"""
+    try:
+        safe_code = FolderManager.sanitize_name(config['code'])
+        book_name = config['book_name']
+        base_name = f"{safe_code}_{book_name}"
+        
+        # Get project path
+        project_destination = SessionManager.get_project_destination()
+        if project_destination and os.path.exists(project_destination):
+            base_path = Path(project_destination)
+        else:
+            base_path = Path.cwd()
+        
+        project_path = base_path / base_name
+        
+        # Determine paths
+        if is_standalone:
+            old_path = project_path / old_folder_name
+            new_path = project_path / new_folder_name
+        else:
+            part_path = project_path / f"{base_name}_{context_key}"
+            old_path = part_path / old_folder_name
+            new_path = part_path / new_folder_name
+        
+        # Rename folder if names are different
+        if old_path.exists():
+            if old_path != new_path:
+                old_path.rename(new_path)
+                
+                # Update created folders list
+                current_folders = SessionManager.get('created_folders', [])
+                old_path_str = str(old_path.absolute())
+                new_path_str = str(new_path.absolute())
+                
+                if old_path_str in current_folders:
+                    current_folders.remove(old_path_str)
+                    current_folders.append(new_path_str)
+                    SessionManager.set('created_folders', current_folders)
+                
+                # Update metadata
+                folder_metadata = SessionManager.get('folder_metadata', {})
+                for folder_id, metadata in folder_metadata.items():
+                    if metadata.get('actual_path') == old_path_str:
+                        metadata['actual_path'] = new_path_str
+                        metadata['folder_name'] = new_folder_name
+                        metadata['naming_base'] = new_folder_name
+                        metadata['chapter_number'] = new_number
+                        metadata['chapter_name'] = new_name
+                        break
+                SessionManager.set('folder_metadata', folder_metadata)
+                
+                # Rename all PDF files inside the folder
+                for pdf_file in new_path.glob("*.pdf"):
+                    old_file_name = pdf_file.name
+                    if old_folder_name in old_file_name:
+                        new_file_name = old_file_name.replace(old_folder_name, new_folder_name)
+                        pdf_file.rename(new_path / new_file_name)
+            else:
+                # Same folder name but update metadata anyway
+                folder_metadata = SessionManager.get('folder_metadata', {})
+                path_str = str(old_path.absolute())
+                for folder_id, metadata in folder_metadata.items():
+                    if metadata.get('actual_path') == path_str:
+                        metadata['chapter_number'] = new_number
+                        metadata['chapter_name'] = new_name
+                        break
+                SessionManager.set('folder_metadata', folder_metadata)
+            
+            # Update chapter in session state
+            if is_standalone:
+                chapters = SessionManager.get('standalone_chapters', [])
+                if chapter_index < len(chapters):
+                    chapters[chapter_index]['number'] = new_number
+                    chapters[chapter_index]['name'] = new_name
+                    SessionManager.set('standalone_chapters', chapters)
+            else:
+                chapters_config = SessionManager.get('chapters_config', {})
+                if context_key in chapters_config and chapter_index < len(chapters_config[context_key]):
+                    chapters_config[context_key][chapter_index]['number'] = new_number
+                    chapters_config[context_key][chapter_index]['name'] = new_name
+                    SessionManager.set('chapters_config', chapters_config)
+            
+            return True
+        else:
+            st.error("Chapter folder not found")
+            return False
+        
+    except PermissionError:
+        st.error("Permission denied. Cannot update chapter folder.")
+        return False
+    except Exception as e:
+        st.error(f"Error updating chapter: {str(e)}")
+        return False
+
+def get_created_chapter_indices(config: Dict, context_key: str, chapters: List[Dict], is_standalone: bool) -> set:
+    """Check which chapter folders actually exist on filesystem"""
+    created_indices = set()
+    
+    safe_code = FolderManager.sanitize_name(config['code'])
+    book_name = config['book_name']
+    base_name = f"{safe_code}_{book_name}"
+    
+    project_destination = SessionManager.get_project_destination()
+    if project_destination and os.path.exists(project_destination):
+        base_path = Path(project_destination)
+    else:
+        base_path = Path.cwd()
+    
+    project_path = base_path / base_name
+    
+    if not project_path.exists():
+        return created_indices
+    
+    for i, chapter in enumerate(chapters):
+        if is_standalone:
+            parent_folder_name = base_name
+            chapter_folder_name = ChapterManager.generate_chapter_folder_name(
+                parent_folder_name,
+                chapter.get('number'),
+                chapter.get('name')
+            )
+            chapter_path = project_path / chapter_folder_name
+        else:
+            parent_folder_name = f"{base_name}_{context_key}"
+            chapter_folder_name = ChapterManager.generate_chapter_folder_name(
+                parent_folder_name,
+                chapter.get('number'),
+                chapter.get('name')
+            )
+            part_path = project_path / parent_folder_name
+            chapter_path = part_path / chapter_folder_name
+        
+        if chapter_path.exists():
+            created_indices.add(i)
+    
+    return created_indices
 
 
 def render_chapter_configuration(config: Dict, existing_parts: List[Dict]):
@@ -2293,14 +2626,155 @@ def create_standalone_chapters(config: Dict, chapters: List[Dict]):
         st.error(f"Error creating standalone chapters: {str(e)}")
 
 
+
 def update_existing_standalone_chapters(config: Dict, chapters: List[Dict]):
-    """Update existing standalone chapters"""
+    """Update existing standalone chapters in backend"""
     try:
         with st.spinner("Updating standalone chapters..."):
-            st.success("✅ Updated standalone chapters!")
-            st.info("Chapter updates are handled automatically when you modify names/numbers.")
+            safe_code = FolderManager.sanitize_name(config['code'])
+            book_name = config['book_name']
+            base_name = f"{safe_code}_{book_name}"
+            
+            # Get project path
+            project_destination = SessionManager.get_project_destination()
+            if project_destination and os.path.exists(project_destination):
+                base_path = Path(project_destination)
+            else:
+                base_path = Path.cwd()
+            
+            project_path = base_path / base_name
+            
+            if not project_path.exists():
+                st.error("Project folder not found")
+                return
+            
+            # Get existing chapter folders from metadata
+            folder_metadata = SessionManager.get('folder_metadata', {})
+            existing_chapters = []
+            
+            for folder_id, metadata in folder_metadata.items():
+                if metadata.get('type') == 'standalone_chapter':
+                    existing_chapters.append({
+                        'id': folder_id,
+                        'path': metadata.get('actual_path'),
+                        'old_name': metadata.get('folder_name'),
+                        'metadata': metadata
+                    })
+            
+            # Match and update each chapter
+            updated_count = 0
+            for i, chapter in enumerate(chapters):
+                if i < len(existing_chapters):
+                    existing = existing_chapters[i]
+                    old_path = Path(existing['path'])
+                    
+                    if old_path.exists():
+                        # Generate new folder name
+                        new_folder_name = ChapterManager.generate_chapter_folder_name(
+                            base_name,
+                            chapter.get('number'),
+                            chapter.get('name')
+                        )
+                        
+                        new_path = project_path / new_folder_name
+                        
+                        # Rename if different
+                        if old_path != new_path:
+                            # First, rename all subfolders and their contents
+                            rename_subfolders_with_new_prefix(old_path, existing['old_name'], new_folder_name)
+                            
+                            # Then rename the main chapter folder
+                            old_path.rename(new_path)
+                            
+                            # Update metadata
+                            folder_metadata[existing['id']]['actual_path'] = str(new_path.absolute())
+                            folder_metadata[existing['id']]['folder_name'] = new_folder_name
+                            folder_metadata[existing['id']]['naming_base'] = new_folder_name
+                            folder_metadata[existing['id']]['chapter_number'] = chapter.get('number', '')
+                            folder_metadata[existing['id']]['chapter_name'] = chapter.get('name', '')
+                            
+                            # Update created folders list
+                            current_folders = SessionManager.get('created_folders', [])
+                            old_path_str = str(old_path.absolute())
+                            new_path_str = str(new_path.absolute())
+                            
+                            if old_path_str in current_folders:
+                                current_folders.remove(old_path_str)
+                                current_folders.append(new_path_str)
+                                SessionManager.set('created_folders', current_folders)
+                            
+                            # Rename PDF files inside
+                            for pdf_file in new_path.glob("*.pdf"):
+                                old_file_name = pdf_file.name
+                                if existing['old_name'] in old_file_name:
+                                    new_file_name = old_file_name.replace(existing['old_name'], new_folder_name)
+                                    pdf_file.rename(new_path / new_file_name)
+                            
+                            updated_count += 1
+            
+            SessionManager.set('folder_metadata', folder_metadata)
+            
+            if updated_count > 0:
+                st.success(f"✅ Updated {updated_count} standalone chapters!")
+            else:
+                st.info("No changes to update")
+                
     except Exception as e:
         st.error(f"Error updating standalone chapters: {str(e)}")
+
+
+def rename_subfolders_with_new_prefix(parent_folder: Path, old_prefix: str, new_prefix: str):
+    """Rename all subfolders inside a chapter to use new parent prefix"""
+    try:
+        # Get all immediate subfolders
+        if not parent_folder.exists():
+            return
+        
+        subfolders = [item for item in parent_folder.iterdir() if item.is_dir()]
+        
+        for subfolder in subfolders:
+            old_subfolder_name = subfolder.name
+            
+            # Check if subfolder name starts with old prefix
+            if old_subfolder_name.startswith(old_prefix):
+                # Replace old prefix with new prefix
+                new_subfolder_name = old_subfolder_name.replace(old_prefix, new_prefix, 1)
+                new_subfolder_path = subfolder.parent / new_subfolder_name
+                
+                # Rename subfolder
+                subfolder.rename(new_subfolder_path)
+                
+                # Rename all files inside the subfolder
+                for file in new_subfolder_path.rglob("*"):
+                    if file.is_file():
+                        old_file_name = file.name
+                        if old_prefix in old_file_name:
+                            new_file_name = old_file_name.replace(old_prefix, new_prefix)
+                            file.rename(file.parent / new_file_name)
+                
+                # Update metadata for this subfolder
+                folder_metadata = SessionManager.get('folder_metadata', {})
+                old_subfolder_str = str(subfolder.absolute())
+                new_subfolder_str = str(new_subfolder_path.absolute())
+                
+                for folder_id, metadata in folder_metadata.items():
+                    if metadata.get('actual_path') == old_subfolder_str:
+                        metadata['actual_path'] = new_subfolder_str
+                        metadata['folder_name'] = new_subfolder_name
+                        metadata['naming_base'] = new_subfolder_name
+                        break
+                
+                SessionManager.set('folder_metadata', folder_metadata)
+                
+                # Update created folders list
+                current_folders = SessionManager.get('created_folders', [])
+                if old_subfolder_str in current_folders:
+                    current_folders.remove(old_subfolder_str)
+                    current_folders.append(new_subfolder_str)
+                    SessionManager.set('created_folders', current_folders)
+                
+    except Exception as e:
+        st.error(f"Error renaming subfolders: {str(e)}")
 
 
 def create_chapters_for_custom_part(config: Dict, part_name: str, chapters: List[Dict]):
@@ -2417,12 +2891,103 @@ def create_all_chapters(config: Dict, chapters_config: Dict):
         st.error(f"Error creating chapters: {str(e)}")
 
 
+
 def update_existing_chapters_for_part(config: Dict, part_name: str, chapters: List[Dict]):
     """Update existing chapters for a specific custom part"""
     try:
         with st.spinner(f"Updating chapters for {part_name}..."):
-            st.success(f"✅ Updated chapters for {part_name}!")
-            st.info("Chapter updates are handled automatically when you modify names/numbers.")
+            safe_code = FolderManager.sanitize_name(config['code'])
+            book_name = config['book_name']
+            base_name = f"{safe_code}_{book_name}"
+            
+            # Get project path
+            project_destination = SessionManager.get_project_destination()
+            if project_destination and os.path.exists(project_destination):
+                base_path = Path(project_destination)
+            else:
+                base_path = Path.cwd()
+            
+            project_path = base_path / base_name
+            part_path = project_path / f"{base_name}_{part_name}"
+            
+            if not part_path.exists():
+                st.error(f"Part folder not found: {part_name}")
+                return
+            
+            # Get existing chapter folders from metadata
+            folder_metadata = SessionManager.get('folder_metadata', {})
+            existing_chapters = []
+            
+            for folder_id, metadata in folder_metadata.items():
+                if (metadata.get('type') == 'chapter' and 
+                    metadata.get('parent_part_name') == part_name):
+                    existing_chapters.append({
+                        'id': folder_id,
+                        'path': metadata.get('actual_path'),
+                        'old_name': metadata.get('folder_name'),
+                        'metadata': metadata
+                    })
+            
+            # Match and update each chapter
+            updated_count = 0
+            parent_folder_name = f"{base_name}_{part_name}"
+            
+            for i, chapter in enumerate(chapters):
+                if i < len(existing_chapters):
+                    existing = existing_chapters[i]
+                    old_path = Path(existing['path'])
+                    
+                    if old_path.exists():
+                        # Generate new folder name
+                        new_folder_name = ChapterManager.generate_chapter_folder_name(
+                            parent_folder_name,
+                            chapter.get('number'),
+                            chapter.get('name')
+                        )
+                        
+                        new_path = part_path / new_folder_name
+                        
+                        # Rename if different
+                        if old_path != new_path:
+                            # First, rename all subfolders and their contents
+                            rename_subfolders_with_new_prefix(old_path, existing['old_name'], new_folder_name)
+                            
+                            # Then rename the main chapter folder
+                            old_path.rename(new_path)
+                            
+                            # Update metadata
+                            folder_metadata[existing['id']]['actual_path'] = str(new_path.absolute())
+                            folder_metadata[existing['id']]['folder_name'] = new_folder_name
+                            folder_metadata[existing['id']]['naming_base'] = new_folder_name
+                            folder_metadata[existing['id']]['chapter_number'] = chapter.get('number', '')
+                            folder_metadata[existing['id']]['chapter_name'] = chapter.get('name', '')
+                            
+                            # Update created folders list
+                            current_folders = SessionManager.get('created_folders', [])
+                            old_path_str = str(old_path.absolute())
+                            new_path_str = str(new_path.absolute())
+                            
+                            if old_path_str in current_folders:
+                                current_folders.remove(old_path_str)
+                                current_folders.append(new_path_str)
+                                SessionManager.set('created_folders', current_folders)
+                            
+                            # Rename PDF files inside
+                            for pdf_file in new_path.glob("*.pdf"):
+                                old_file_name = pdf_file.name
+                                if existing['old_name'] in old_file_name:
+                                    new_file_name = old_file_name.replace(existing['old_name'], new_folder_name)
+                                    pdf_file.rename(new_path / new_file_name)
+                            
+                            updated_count += 1
+            
+            SessionManager.set('folder_metadata', folder_metadata)
+            
+            if updated_count > 0:
+                st.success(f"✅ Updated {updated_count} chapters for {part_name}!")
+            else:
+                st.info("No changes to update")
+                
     except Exception as e:
         st.error(f"Error updating chapters for {part_name}: {str(e)}")
 
@@ -2961,19 +3526,19 @@ def render_folder_browser_in_main():
     current_path = Path(st.session_state['browser_path']).absolute()
     
     # Current location display
-    st.info(f"📍 Current location: {current_path}")
+    st.info(f"📍 **Current:** `{current_path}`")
     
     # Navigation controls
-    col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
+    col1, col2, col3, col4 = st.columns([1, 1, 3, 1])
     
     with col1:
-        if st.button("🏠 Home", key="nav_home"):
+        if st.button("🏠 Home", key="nav_home", use_container_width=True):
             st.session_state['browser_path'] = str(Path.home().absolute())
             st.rerun()
     
     with col2:
         if current_path.parent != current_path:
-            if st.button("⬆️ Up", key="nav_up"):
+            if st.button("⬆️ Up", key="nav_up", use_container_width=True):
                 st.session_state['browser_path'] = str(current_path.parent.absolute())
                 st.rerun()
     
@@ -2983,55 +3548,53 @@ def render_folder_browser_in_main():
         else:
             button_text = "✅ SET PROJECT LOCATION"
             
-        if st.button(button_text, key="select_folder", type="primary"):
+        if st.button(button_text, key="select_folder", type="primary", use_container_width=True):
             selected_path = str(current_path.absolute())
             
             if context == 'page_assignment':
-                # Store the selection for page assignment
                 st.session_state['selected_page_destination'] = selected_path
                 st.session_state['selected_page_destination_name'] = current_path.name
-                st.success(f"✅ Extraction destination selected: {current_path.name}")
+                st.success(f"Extraction destination selected: {current_path.name}")
                 st.session_state['show_folder_browser'] = False
             else:
                 SessionManager.set_project_destination(selected_path)
-                st.success(f"✅ Project location set: {current_path.name}")
+                st.success(f"Project location set: {current_path.name}")
                 st.session_state['show_project_browser'] = False
             
-            # Close browser
             st.session_state['folder_browser_active'] = False
             st.rerun()
     
     with col4:
-        if st.button("❌ Cancel", key="cancel_browser"):
+        if st.button("❌ Cancel", key="cancel_browser", use_container_width=True):
             st.session_state['folder_browser_active'] = False
             st.session_state['show_folder_browser'] = False
             st.session_state['show_project_browser'] = False
             st.rerun()
     
-    # Quick access buttons
-    st.markdown("**Quick Access:**")
-    quick_folders = get_quick_access_folders()
-    
-    if quick_folders:
-        cols = st.columns(len(quick_folders))
-        for i, (name, path) in enumerate(quick_folders.items()):
-            with cols[i]:
-                if st.button(name, key=f"quick_nav_{i}"):
-                    st.session_state['browser_path'] = path
-                    st.rerun()
-    
     st.markdown("---")
     
-    # CRITICAL: This is the folder listing section that was missing
+    # Quick access in expander
+    with st.expander("⚡ Quick Access", expanded=False):
+        quick_folders = get_quick_access_folders()
+        
+        if quick_folders:
+            quick_cols = st.columns(len(quick_folders))
+            for i, (name, path) in enumerate(quick_folders.items()):
+                with quick_cols[i]:
+                    if st.button(name, key=f"quick_nav_{i}", use_container_width=True):
+                        st.session_state['browser_path'] = path
+                        st.rerun()
+    
+    # Folder listing with full names visible
     try:
         folders = [item for item in current_path.iterdir() 
                   if item.is_dir() and not item.name.startswith('.')]
         folders.sort(key=lambda x: x.name.lower())
         
         if folders:
-            st.markdown("**📁 Available Folders:**")
+            st.markdown(f"**📁 Folders ({len(folders)}):**")
             
-            # Display folders in a grid
+            # Display folders in 3-column grid with full names
             cols_per_row = 3
             for i in range(0, len(folders), cols_per_row):
                 cols = st.columns(cols_per_row)
@@ -3040,22 +3603,24 @@ def render_folder_browser_in_main():
                     if j < len(cols):
                         with cols[j]:
                             folder_name = folder.name
-                            display_name = folder_name[:15] + "..." if len(folder_name) > 15 else folder_name
                             
-                            if st.button(f"📁 {display_name}", 
+                            # Show full folder name as button text (no truncation)
+                            # Button will auto-wrap text if needed
+                            if st.button(f"📁 {folder_name}", 
                                        key=f"folder_nav_{i}_{j}",
-                                       help=f"Navigate to: {folder_name}"):
+                                       use_container_width=True):
                                 st.session_state['browser_path'] = str(folder.absolute())
                                 st.rerun()
         else:
-            st.info("📂 No subfolders found in this directory")
+            st.info("📂 No subfolders in this directory")
             
     except PermissionError:
-        st.error("❌ Permission denied accessing this folder")
+        st.error("❌ Permission denied")
     except Exception as e:
-        st.error(f"❌ Error reading folder: {str(e)}")
+        st.error(f"❌ Error: {str(e)}")
     
     return True
+
 
 def get_quick_access_folders():
     """Get quick access folder shortcuts"""
@@ -3191,6 +3756,7 @@ def render_font_case_selector():
 def render_font_case_changer():
     """Render font case changer for sidebar with radio buttons"""
     from core.text_formatter import TextFormatter
+    from src.core.session_manager import SessionManager
     
     if st.session_state.get('font_case_selected'):
         st.markdown("---")
@@ -3218,12 +3784,7 @@ def render_font_case_changer():
         )
         
         # Only process change if it's actually different from previous selection
-        # AND if the folder structure hasn't been created yet (to prevent unwanted refreshes)
-        from src.core.session_manager import SessionManager
-        
-        if (selected_font_case != st.session_state['previous_font_selection'] and 
-            not SessionManager.get('folder_structure_created')):
-            
+        if selected_font_case != st.session_state['previous_font_selection']:
             st.markdown("**Preview:**")
             sample_texts = ["CS101", "Data Structures", "Advanced Topics"]
             
@@ -3235,18 +3796,19 @@ def render_font_case_changer():
             st.session_state['selected_font_case'] = selected_font_case
             st.session_state['previous_font_selection'] = selected_font_case
             st.success(f"Font format updated to: {selected_font_case}")
-            # Don't call st.rerun() here to prevent the refresh issue
-        elif selected_font_case != st.session_state['previous_font_selection']:
-            # Just update the selection without showing preview or rerunning
-            st.session_state['selected_font_case'] = selected_font_case
-            st.session_state['previous_font_selection'] = selected_font_case
+            
+            # FIXED: Don't rerun if folder structure is already created
+            # Only rerun if we're still in setup phase
+            if not SessionManager.get('folder_structure_created'):
+                st.rerun()
 
 
 # ===== File: src/ui/main_content.py =====
 
 # src/ui/main_content.py
+import os
 import streamlit as st
-from typing import List
+from typing import Dict, List
 from core.session_manager import SessionManager
 from core.folder_manager import FolderManager
 
@@ -3511,6 +4073,7 @@ def render_stats_section():
     else:
         st.info("Upload PDF to see stats")
 
+
 def display_project_stats():
     """Display project statistics"""
     total_pages = SessionManager.get('total_pages')
@@ -3531,11 +4094,60 @@ def display_project_stats():
         created_folders = SessionManager.get('created_folders', [])
         st.metric("Folders Created", len(created_folders))
     
+    # Pages generated metric with manual calculation button
+    if SessionManager.get('folder_structure_created'):
+        # Get cached count or show 0
+        pages_generated = SessionManager.get('total_pages_generated', 0)
+        last_calculated = SessionManager.get('pages_calculated_timestamp', None)
+        
+        st.metric("Pages Generated", pages_generated)
+        from datetime import datetime
+        if last_calculated:
+            
+            calc_time = datetime.fromisoformat(last_calculated)
+            st.caption(f"Last calculated: {calc_time.strftime('%H:%M:%S')}")
+        
+        if st.button("🔄 Calculate Pages", key="calc_pages_btn", help="Count all PDF files in project folders"):
+            with st.spinner("Counting generated pages..."):
+                total_count = calculate_total_pages_generated(config)
+                SessionManager.set('total_pages_generated', total_count)
+                SessionManager.set('pages_calculated_timestamp', datetime.now().isoformat())
+                st.success(f"Found {total_count} generated pages")
+                st.rerun()
+    
     # Show custom part names
     if custom_parts:
         st.markdown("**Custom Parts:**")
         for part_info in custom_parts.values():
             st.write(f"🎯 {part_info['name']}")
+
+
+def calculate_total_pages_generated(config: Dict) -> int:
+    """Calculate total number of PDF pages generated in all folders"""
+    from pathlib import Path
+    
+    safe_code = FolderManager.sanitize_name(config.get('code', ''))
+    book_name = config.get('book_name', '')
+    base_name = f"{safe_code}_{book_name}"
+    
+    # Get project path
+    project_destination = SessionManager.get_project_destination()
+    if project_destination and os.path.exists(project_destination):
+        base_path = Path(project_destination)
+    else:
+        base_path = Path.cwd()
+    
+    project_path = base_path / base_name
+    
+    if not project_path.exists():
+        return 0
+    
+    # Count all PDF files recursively
+    try:
+        pdf_files = list(project_path.rglob("*.pdf"))
+        return len(pdf_files)
+    except Exception:
+        return 0
 
 
 # ===== File: src/ui/page_assignment.py =====
@@ -3608,10 +4220,10 @@ def render_assignment_interface():
     
     st.markdown("### 📂 Select Destination")
     
-    # Show destination selection options - simplified to only 2 options
+    # Show only 2 destination selection options
     destination_mode = st.radio(
         "Choose destination method:",
-        ["Select from project folders", "Browse for any folder"],
+        ["Select from project folders", "Enter manual path"],
         help="Choose how to specify where pages should be extracted",
         key="destination_mode_radio"
     )
@@ -3620,8 +4232,8 @@ def render_assignment_interface():
     
     if destination_mode == "Select from project folders":
         destination_info = render_project_folder_selection()
-    else:  # Browse for any folder
-        destination_info = render_system_folder_browser()
+    else:  # Enter manual path
+        destination_info = render_manual_path_input()
     
     # Only show page range input if we have a valid destination
     if destination_info and destination_info[0]:
@@ -3629,6 +4241,37 @@ def render_assignment_interface():
     else:
         st.info("Please select a destination folder first")
 
+def render_manual_path_input() -> Tuple[str, str]:
+    """Render simple manual path input"""
+    
+    st.markdown("**Enter destination path:**")
+    
+    manual_path = st.text_input(
+        "Folder path:",
+        placeholder="e.g., /Users/username/Documents/MyFolder",
+        key="manual_path_input",
+        help="Enter the complete path to destination folder"
+    )
+    
+    if manual_path.strip():
+        path = Path(manual_path.strip())
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # Show path validation status
+            if path.exists() and path.is_dir():
+                st.success(f"✅ Valid folder: {path.name}")
+            elif not path.exists():
+                st.info(f"📁 Will be created: {path.name}")
+            else:
+                st.error("❌ Invalid path")
+        
+        with col2:
+            if st.button("Use Path", key="use_manual_path", type="primary", use_container_width=True):
+                return (str(path.absolute()), path.name)
+    
+    return ("", "")
 
 def render_project_folder_selection() -> Tuple[str, str]:
     """Render project folder selection with browse interface"""
@@ -3649,8 +4292,6 @@ def render_project_folder_selection() -> Tuple[str, str]:
         st.error("Project folder not found. Please create folder structure first.")
         return ("", "")
     
-    st.markdown("**Browse project folders:**")
-    
     # Get all folders in the project including metadata
     available_folders = get_project_folders_with_metadata(project_path)
     
@@ -3658,16 +4299,23 @@ def render_project_folder_selection() -> Tuple[str, str]:
         st.info("No folders found in the project.")
         return ("", "")
     
-    # Create folder browser interface
+    # Create folder browser interface with better styling
+    st.markdown("**Select destination from project folders:**")
+    
     folder_options = []
     folder_info_list = []
     
+    # Add project root as an option
+    folder_options.append(f"📂 {project_path.name} (Project Root)")
+    folder_info_list.append((str(project_path.absolute()), {"naming_base": project_path.name}))
+    
+    # Add all subfolders with proper hierarchy display
     for folder_info in available_folders:
         display_name, folder_path, folder_type, metadata = folder_info
         folder_options.append(display_name)
         folder_info_list.append((folder_path, metadata))
     
-    # Use selectbox for folder selection with unique key
+    # Use selectbox with better label
     selected_index = st.selectbox(
         "Choose destination folder:",
         range(len(folder_options)),
@@ -3680,7 +4328,11 @@ def render_project_folder_selection() -> Tuple[str, str]:
         selected_folder_path, selected_metadata = folder_info_list[selected_index]
         folder_name = selected_metadata.get('naming_base') if selected_metadata else Path(selected_folder_path).name
         
-        # NEW FEATURE: Check if selected folder is a Part folder and show additional options
+        # Show selected folder info
+        st.success(f"Selected: {folder_name}")
+        st.caption(f"Path: `{selected_folder_path}`")
+        
+        # Check if selected folder is a Part folder and show additional options
         selected_folder_display = folder_options[selected_index]
         if "📂" in selected_folder_display and "_Part_" in selected_folder_path:
             return render_part_folder_options(selected_folder_path, folder_name, selected_folder_display)
@@ -3785,48 +4437,61 @@ def get_chapters_for_part(part_number: int) -> List[Dict]:
     chapters_info.sort(key=sort_key)
     return chapters_info
 
-
-def render_system_folder_browser() -> Tuple[str, str]:
-    """Render system-wide folder browser for page extraction"""
+# def render_system_folder_browser() -> Tuple[str, str]:
+#     """Render system-wide folder browser for page extraction"""
     
-    st.markdown("**Choose destination:**")
+#     st.markdown("**Browse or enter destination:**")
     
-    # Check if we should show the browser
-    if st.button("📂 Browse for Folder", key="open_browser_btn", type="primary"):
-        st.session_state['show_folder_browser'] = True
-        st.session_state['folder_browser_active'] = True
-        st.session_state['folder_browser_context'] = 'page_assignment'
-        st.rerun()
+#     # Create tabs for better organization
+#     tab1, tab2, tab3 = st.tabs(["🔍 Browse", "⚡ Quick Access", "⌨️ Manual Path"])
     
-    # Quick selection options
-    st.markdown("**Or select quickly:**")
-    from src.ui.folder_selector import get_quick_access_folders
+#     with tab1:
+#         # Browse button
+#         if st.button("📂 Open Folder Browser", key="open_browser_btn", type="primary", use_container_width=True):
+#             st.session_state['show_folder_browser'] = True
+#             st.session_state['folder_browser_active'] = True
+#             st.session_state['folder_browser_context'] = 'page_assignment'
+#             st.rerun()
+        
+#         st.caption("Opens a visual folder browser to navigate and select destination")
     
-    quick_folders = get_quick_access_folders()
+#     with tab2:
+#         # Quick selection options
+#         from src.ui.folder_selector import get_quick_access_folders
+#         quick_folders = get_quick_access_folders()
+        
+#         if quick_folders:
+#             for name, path in quick_folders.items():
+#                 if st.button(f"📁 {name}", key=f"select_{name.replace(' ', '_')}", use_container_width=True):
+#                     return (path, Path(path).name)
+#                 st.caption(f"`{path}`")
+#         else:
+#             st.info("No quick access folders available")
     
-    for name, path in quick_folders.items():
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.write(f"📁 {name}")
-            st.caption(path)
-        with col2:
-            if st.button("Select", key=f"select_{name.replace(' ', '_')}"):
-                return (path, Path(path).name)
+#     with tab3:
+#         # Manual input
+#         manual_path = st.text_input(
+#             "Enter folder path:",
+#             placeholder="e.g., /Users/username/Documents/MyFolder",
+#             key="manual_path_input",
+#             help="Enter the complete path to destination folder"
+#         )
+        
+#         if manual_path.strip():
+#             path = Path(manual_path.strip())
+            
+#             # Show path validation status
+#             if path.exists() and path.is_dir():
+#                 st.success(f"✅ Valid folder: {path.name}")
+#             elif not path.exists():
+#                 st.info(f"📁 Will be created: {path.name}")
+#             else:
+#                 st.error("❌ Invalid path")
+            
+#             if st.button("Use This Path", key="use_manual_path", type="primary", use_container_width=True):
+#                 return (str(path.absolute()), path.name)
     
-    # Manual input
-    st.markdown("**Or enter path manually:**")
-    manual_path = st.text_input(
-        "Folder path:",
-        placeholder="Enter full path to destination folder",
-        key="manual_path_input"
-    )
-    
-    if manual_path.strip():
-        path = Path(manual_path.strip())
-        if st.button("Use This Path", key="use_manual_path"):
-            return (str(path.absolute()), path.name)
-    
-    return ("", "")
+#     return ("", "")
 
 
 def get_project_path(base_name: str) -> Path:

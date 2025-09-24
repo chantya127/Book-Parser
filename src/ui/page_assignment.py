@@ -66,10 +66,10 @@ def render_assignment_interface():
     
     st.markdown("### 📂 Select Destination")
     
-    # Show destination selection options - simplified to only 2 options
+    # Show only 2 destination selection options
     destination_mode = st.radio(
         "Choose destination method:",
-        ["Select from project folders", "Browse for any folder"],
+        ["Select from project folders", "Enter manual path"],
         help="Choose how to specify where pages should be extracted",
         key="destination_mode_radio"
     )
@@ -78,8 +78,8 @@ def render_assignment_interface():
     
     if destination_mode == "Select from project folders":
         destination_info = render_project_folder_selection()
-    else:  # Browse for any folder
-        destination_info = render_system_folder_browser()
+    else:  # Enter manual path
+        destination_info = render_manual_path_input()
     
     # Only show page range input if we have a valid destination
     if destination_info and destination_info[0]:
@@ -87,6 +87,37 @@ def render_assignment_interface():
     else:
         st.info("Please select a destination folder first")
 
+def render_manual_path_input() -> Tuple[str, str]:
+    """Render simple manual path input"""
+    
+    st.markdown("**Enter destination path:**")
+    
+    manual_path = st.text_input(
+        "Folder path:",
+        placeholder="e.g., /Users/username/Documents/MyFolder",
+        key="manual_path_input",
+        help="Enter the complete path to destination folder"
+    )
+    
+    if manual_path.strip():
+        path = Path(manual_path.strip())
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # Show path validation status
+            if path.exists() and path.is_dir():
+                st.success(f"✅ Valid folder: {path.name}")
+            elif not path.exists():
+                st.info(f"📁 Will be created: {path.name}")
+            else:
+                st.error("❌ Invalid path")
+        
+        with col2:
+            if st.button("Use Path", key="use_manual_path", type="primary", use_container_width=True):
+                return (str(path.absolute()), path.name)
+    
+    return ("", "")
 
 def render_project_folder_selection() -> Tuple[str, str]:
     """Render project folder selection with browse interface"""
@@ -107,8 +138,6 @@ def render_project_folder_selection() -> Tuple[str, str]:
         st.error("Project folder not found. Please create folder structure first.")
         return ("", "")
     
-    st.markdown("**Browse project folders:**")
-    
     # Get all folders in the project including metadata
     available_folders = get_project_folders_with_metadata(project_path)
     
@@ -116,16 +145,23 @@ def render_project_folder_selection() -> Tuple[str, str]:
         st.info("No folders found in the project.")
         return ("", "")
     
-    # Create folder browser interface
+    # Create folder browser interface with better styling
+    st.markdown("**Select destination from project folders:**")
+    
     folder_options = []
     folder_info_list = []
     
+    # Add project root as an option
+    folder_options.append(f"📂 {project_path.name} (Project Root)")
+    folder_info_list.append((str(project_path.absolute()), {"naming_base": project_path.name}))
+    
+    # Add all subfolders with proper hierarchy display
     for folder_info in available_folders:
         display_name, folder_path, folder_type, metadata = folder_info
         folder_options.append(display_name)
         folder_info_list.append((folder_path, metadata))
     
-    # Use selectbox for folder selection with unique key
+    # Use selectbox with better label
     selected_index = st.selectbox(
         "Choose destination folder:",
         range(len(folder_options)),
@@ -138,7 +174,11 @@ def render_project_folder_selection() -> Tuple[str, str]:
         selected_folder_path, selected_metadata = folder_info_list[selected_index]
         folder_name = selected_metadata.get('naming_base') if selected_metadata else Path(selected_folder_path).name
         
-        # NEW FEATURE: Check if selected folder is a Part folder and show additional options
+        # Show selected folder info
+        st.success(f"Selected: {folder_name}")
+        st.caption(f"Path: `{selected_folder_path}`")
+        
+        # Check if selected folder is a Part folder and show additional options
         selected_folder_display = folder_options[selected_index]
         if "📂" in selected_folder_display and "_Part_" in selected_folder_path:
             return render_part_folder_options(selected_folder_path, folder_name, selected_folder_display)
@@ -243,48 +283,61 @@ def get_chapters_for_part(part_number: int) -> List[Dict]:
     chapters_info.sort(key=sort_key)
     return chapters_info
 
-
-def render_system_folder_browser() -> Tuple[str, str]:
-    """Render system-wide folder browser for page extraction"""
+# def render_system_folder_browser() -> Tuple[str, str]:
+#     """Render system-wide folder browser for page extraction"""
     
-    st.markdown("**Choose destination:**")
+#     st.markdown("**Browse or enter destination:**")
     
-    # Check if we should show the browser
-    if st.button("📂 Browse for Folder", key="open_browser_btn", type="primary"):
-        st.session_state['show_folder_browser'] = True
-        st.session_state['folder_browser_active'] = True
-        st.session_state['folder_browser_context'] = 'page_assignment'
-        st.rerun()
+#     # Create tabs for better organization
+#     tab1, tab2, tab3 = st.tabs(["🔍 Browse", "⚡ Quick Access", "⌨️ Manual Path"])
     
-    # Quick selection options
-    st.markdown("**Or select quickly:**")
-    from src.ui.folder_selector import get_quick_access_folders
+#     with tab1:
+#         # Browse button
+#         if st.button("📂 Open Folder Browser", key="open_browser_btn", type="primary", use_container_width=True):
+#             st.session_state['show_folder_browser'] = True
+#             st.session_state['folder_browser_active'] = True
+#             st.session_state['folder_browser_context'] = 'page_assignment'
+#             st.rerun()
+        
+#         st.caption("Opens a visual folder browser to navigate and select destination")
     
-    quick_folders = get_quick_access_folders()
+#     with tab2:
+#         # Quick selection options
+#         from src.ui.folder_selector import get_quick_access_folders
+#         quick_folders = get_quick_access_folders()
+        
+#         if quick_folders:
+#             for name, path in quick_folders.items():
+#                 if st.button(f"📁 {name}", key=f"select_{name.replace(' ', '_')}", use_container_width=True):
+#                     return (path, Path(path).name)
+#                 st.caption(f"`{path}`")
+#         else:
+#             st.info("No quick access folders available")
     
-    for name, path in quick_folders.items():
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.write(f"📁 {name}")
-            st.caption(path)
-        with col2:
-            if st.button("Select", key=f"select_{name.replace(' ', '_')}"):
-                return (path, Path(path).name)
+#     with tab3:
+#         # Manual input
+#         manual_path = st.text_input(
+#             "Enter folder path:",
+#             placeholder="e.g., /Users/username/Documents/MyFolder",
+#             key="manual_path_input",
+#             help="Enter the complete path to destination folder"
+#         )
+        
+#         if manual_path.strip():
+#             path = Path(manual_path.strip())
+            
+#             # Show path validation status
+#             if path.exists() and path.is_dir():
+#                 st.success(f"✅ Valid folder: {path.name}")
+#             elif not path.exists():
+#                 st.info(f"📁 Will be created: {path.name}")
+#             else:
+#                 st.error("❌ Invalid path")
+            
+#             if st.button("Use This Path", key="use_manual_path", type="primary", use_container_width=True):
+#                 return (str(path.absolute()), path.name)
     
-    # Manual input
-    st.markdown("**Or enter path manually:**")
-    manual_path = st.text_input(
-        "Folder path:",
-        placeholder="Enter full path to destination folder",
-        key="manual_path_input"
-    )
-    
-    if manual_path.strip():
-        path = Path(manual_path.strip())
-        if st.button("Use This Path", key="use_manual_path"):
-            return (str(path.absolute()), path.name)
-    
-    return ("", "")
+#     return ("", "")
 
 
 def get_project_path(base_name: str) -> Path:

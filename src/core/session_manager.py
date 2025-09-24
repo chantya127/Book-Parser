@@ -32,6 +32,8 @@ class SessionManager:
             'selected_font_case': 'First Capital (Title Case)',
             'project_destination_folder': '',  # NEW: For project structure location
             'project_destination_selected': False,  # NEW: Track if project destination is set
+            'total_pages_generated': 0,  # NEW: Cache for generated pages count
+            'pages_calculated_timestamp': None,  # NEW: Last calculation timestamp
         }
         
         for key, value in defaults.items():
@@ -78,6 +80,10 @@ class SessionManager:
         """Set font case and mark as selected"""
         st.session_state['selected_font_case'] = font_case
         st.session_state['font_case_selected'] = True
+        # Also store in project config for persistence
+        project_config = st.session_state.get('project_config', {})
+        project_config['selected_font_case'] = font_case
+        st.session_state['project_config'] = project_config
 
     @staticmethod
     def get_default_destination() -> str:

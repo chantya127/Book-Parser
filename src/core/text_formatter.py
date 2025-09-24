@@ -84,4 +84,14 @@ class TextFormatter:
     def get_current_font_case():
         """Get current font case from session - using lazy import"""
         import streamlit as st
-        return st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+        # Check session state first, then project config, then default
+        if 'selected_font_case' in st.session_state:
+            return st.session_state.get('selected_font_case')
+        
+        project_config = st.session_state.get('project_config', {})
+        if 'selected_font_case' in project_config:
+            font_case = project_config.get('selected_font_case')
+            st.session_state['selected_font_case'] = font_case
+            return font_case
+        
+        return 'First Capital (Sentence case)'

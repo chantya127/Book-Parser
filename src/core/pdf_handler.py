@@ -181,15 +181,18 @@ class PDFExtractor:
             # Use sequential numbering if provided, otherwise use actual page number
             page_num_for_filename = sequential_page_num if sequential_page_num is not None else actual_page_num
             
-            # Apply font formatting to the page number text
+            # Apply font formatting to both "Page" text and page number
             import streamlit as st
             from core.text_formatter import TextFormatter
             font_case = st.session_state.get('selected_font_case', 'First Capital (Title Case)')
+            
+            # Format "Page" text
+            formatted_page_text = TextFormatter.format_text("Page", font_case)
+            # Format page number
             formatted_page_num = TextFormatter.format_text(str(page_num_for_filename), font_case)
             
-            # Generate file name with proper spacing - KEEP THE SPACE
-            # Don't sanitize the naming_base if it already has proper formatting
-            file_name = f"{naming_base}_Page {formatted_page_num}.pdf"
+            # Generate file name with formatted "Page" text and number
+            file_name = f"{naming_base}_{formatted_page_text} {formatted_page_num}.pdf"
             
             # Use the exact dest_path provided
             file_path = dest_path / file_name
@@ -203,7 +206,7 @@ class PDFExtractor:
         except Exception as e:
             st.error(f"Error extracting page {actual_page_num}: {str(e)}")
             return False, ""
-    
+
     @staticmethod
     def sanitize_filename(filename: str) -> str:
         """Sanitize filename for cross-platform compatibility"""

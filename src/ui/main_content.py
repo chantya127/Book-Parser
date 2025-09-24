@@ -1,6 +1,7 @@
 # src/ui/main_content.py
+import os
 import streamlit as st
-from typing import List
+from typing import Dict, List
 from core.session_manager import SessionManager
 from core.folder_manager import FolderManager
 
@@ -265,6 +266,7 @@ def render_stats_section():
     else:
         st.info("Upload PDF to see stats")
 
+
 def display_project_stats():
     """Display project statistics"""
     total_pages = SessionManager.get('total_pages')
@@ -285,8 +287,57 @@ def display_project_stats():
         created_folders = SessionManager.get('created_folders', [])
         st.metric("Folders Created", len(created_folders))
     
+    # Pages generated metric with manual calculation button
+    if SessionManager.get('folder_structure_created'):
+        # Get cached count or show 0
+        pages_generated = SessionManager.get('total_pages_generated', 0)
+        last_calculated = SessionManager.get('pages_calculated_timestamp', None)
+        
+        st.metric("Pages Generated", pages_generated)
+        from datetime import datetime
+        if last_calculated:
+            
+            calc_time = datetime.fromisoformat(last_calculated)
+            st.caption(f"Last calculated: {calc_time.strftime('%H:%M:%S')}")
+        
+        if st.button("🔄 Calculate Pages", key="calc_pages_btn", help="Count all PDF files in project folders"):
+            with st.spinner("Counting generated pages..."):
+                total_count = calculate_total_pages_generated(config)
+                SessionManager.set('total_pages_generated', total_count)
+                SessionManager.set('pages_calculated_timestamp', datetime.now().isoformat())
+                st.success(f"Found {total_count} generated pages")
+                st.rerun()
+    
     # Show custom part names
     if custom_parts:
         st.markdown("**Custom Parts:**")
         for part_info in custom_parts.values():
             st.write(f"🎯 {part_info['name']}")
+
+
+def calculate_total_pages_generated(config: Dict) -> int:
+    """Calculate total number of PDF pages generated in all folders"""
+    from pathlib import Path
+    
+    safe_code = FolderManager.sanitize_name(config.get('code', ''))
+    book_name = config.get('book_name', '')
+    base_name = f"{safe_code}_{book_name}"
+    
+    # Get project path
+    project_destination = SessionManager.get_project_destination()
+    if project_destination and os.path.exists(project_destination):
+        base_path = Path(project_destination)
+    else:
+        base_path = Path.cwd()
+    
+    project_path = base_path / base_name
+    
+    if not project_path.exists():
+        return 0
+    
+    # Count all PDF files recursively
+    try:
+        pdf_files = list(project_path.rglob("*.pdf"))
+        return len(pdf_files)
+    except Exception:
+        return 0

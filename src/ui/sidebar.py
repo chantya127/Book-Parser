@@ -217,9 +217,12 @@ def save_current_project():
     project_file = projects_dir / f"{project_name}.json"
     
     try:
+        # Get current font case
+        current_font_case = SessionManager.get_font_case()
+        
         # Collect all project data including destinations
         project_data = {
-            'project_config': SessionManager.get('project_config', {}),
+            'project_config': config,
             'pdf_uploaded': SessionManager.get('pdf_uploaded', False),
             'pdf_file_name': SessionManager.get('pdf_file').name if SessionManager.get('pdf_file') else None,
             'total_pages': SessionManager.get('total_pages', 0),
@@ -232,12 +235,10 @@ def save_current_project():
             'chapter_suffixes': SessionManager.get('chapter_suffixes', {}),
             'extraction_history': SessionManager.get('extraction_history', []),
             'custom_parts': SessionManager.get('custom_parts', {}),
-            'font_case_selected': SessionManager.get('font_case_selected', False),
-            'selected_font_case': SessionManager.get('selected_font_case', 'First Capital (Sentence case)'),
-            'default_destination_folder': SessionManager.get('default_destination_folder', ''),
-            'destination_folder_selected': SessionManager.get('destination_folder_selected', False),
-            'project_destination_folder': SessionManager.get('project_destination_folder', ''),  # NEW
-            'project_destination_selected': SessionManager.get('project_destination_selected', False),  # NEW
+            'font_case_selected': True,
+            'selected_font_case': current_font_case,  # Use current font case
+            'project_destination_folder': SessionManager.get('project_destination_folder', ''),
+            'project_destination_selected': SessionManager.get('project_destination_selected', False),
             'saved_timestamp': timestamp,
             'saved_datetime': datetime.now().isoformat()
         }
@@ -255,7 +256,7 @@ def save_current_project():
         
     except Exception as e:
         st.error(f"❌ Error saving project: {str(e)}")
-
+        
 def load_project(project_name):
     """Load project from file"""
     projects_dir = get_projects_dir()
