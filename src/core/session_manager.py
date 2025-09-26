@@ -65,10 +65,21 @@ class SessionManager:
     
     @staticmethod
     def update_config(updates: Dict[str, Any]):
-        """Update project configuration"""
+        """Update project configuration while preserving important state"""
         if 'project_config' not in st.session_state:
             st.session_state.project_config = {}
+        
+        # Preserve font case from session state if not in updates
+        if 'selected_font_case' not in updates:
+            current_font_case = st.session_state.get('selected_font_case')
+            if current_font_case:
+                updates['selected_font_case'] = current_font_case
+        
         st.session_state.project_config.update(updates)
+        
+        # Sync font case to session state if it's in the updates
+        if 'selected_font_case' in updates:
+            st.session_state['selected_font_case'] = updates['selected_font_case']
     
     @staticmethod
     def get_font_case() -> str:

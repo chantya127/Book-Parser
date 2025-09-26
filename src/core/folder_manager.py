@@ -3,7 +3,6 @@
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 import streamlit as st
-import random
 import os
 
 class FolderManager:
@@ -15,14 +14,52 @@ class FolderManager:
     def get_default_folder_options() -> List[Dict[str, str]]:
         """Get available default folder options with descriptions"""
         return [
-            {'name': 'prologue', 'description': 'Introduction or preface content'},
-            {'name': 'index', 'description': 'Table of contents, index, or reference pages'},
-            {'name': 'epilogue', 'description': 'Conclusion, appendix, or closing content'},
-            {'name': 'bibliography', 'description': 'References and citations'},
-            {'name': 'glossary', 'description': 'Terms and definitions'},
-            {'name': 'exercises', 'description': 'Practice problems and solutions'},
-            {'name': 'notes', 'description': 'Additional notes and annotations'}
-        ]
+        {'name': 'Prologue', 'description': 'Introduction or preface content'},
+        {'name': 'Index', 'description': 'Table of contents, index, or reference pages'},
+        {'name': 'Epilogue', 'description': 'Conclusion, appendix, or closing content'},
+        {'name': 'Bibliography', 'description': 'References and citations'},
+        {'name': 'Glossary', 'description': 'Terms and definitions'},
+        {'name': 'Exercises', 'description': 'Practice problems and solutions'},
+        {'name': 'Notes', 'description': 'Additional notes and annotations'},
+
+        # New values
+        {'name': 'Cover', 'description': 'Book cover page'},
+        {'name': 'Whole Book', 'description': 'Entire content of the book'},
+        {'name': 'Front Index', 'description': 'Index at the beginning of the book'},
+        {'name': 'Back Index', 'description': 'Index at the end of the book'},
+        {'name': 'Prologue_Name', 'description': 'Specific prologue title (e.g., Prologue_April 1942)'},
+        {'name': 'Epilogue_Name', 'description': 'Specific epilogue title (e.g., Epilogue_April 1942)'},
+        {'name': 'Preface', 'description': 'Introductory remarks before main text'},
+        {'name': 'Timeline', 'description': 'Chronological events and timeline'},
+        {'name': 'About The Author', 'description': 'Details about the author'},
+        {'name': 'Author Note', 'description': 'Notes directly from the author'},
+        {'name': "Author's Note", 'description': 'Author’s additional remarks'},
+        {'name': 'Content', 'description': 'Main content of the book'},
+        {'name': 'Contents', 'description': 'List of book contents'},
+        {'name': 'Postscript', 'description': 'Additional message after the main content'},
+        {'name': 'Introduction', 'description': 'Introductory content before chapters'},
+        {'name': 'List Of Illustrations', 'description': 'Catalog of illustrations used'},
+        {'name': 'List Of Maps', 'description': 'Catalog of maps included'},
+        {'name': 'Acknowledgement', 'description': 'Credits and acknowledgements'},
+        {'name': 'Acknowledgements', 'description': 'Acknowledgements to contributors'},
+        {'name': 'Author Q&A', 'description': 'Questions and answers with the author'},
+        {'name': 'Reading Group Questions', 'description': 'Questions for reading groups'},
+        {'name': "Reader's Questions & Answers", 'description': 'Q&A from readers'},
+        {'name': "Readers' Questions & Answers", 'description': 'Multiple readers’ Q&A'},
+        {'name': 'Author And Translator Biographies', 'description': 'Biographies of author and translator'},
+        {'name': "Author's Acknowledgements", 'description': 'Acknowledgements from the author'},
+        {'name': 'Characters', 'description': 'List of characters'},
+        {'name': 'Characters List', 'description': 'Detailed character list'},
+        {'name': 'Map', 'description': 'Single map'},
+        {'name': 'Maps', 'description': 'Multiple maps'},
+        {'name': 'A Conversation With', 'description': 'Dialogue with the author or others'},
+        {'name': 'A Guide For Reading Groups', 'description': 'Guide for reading group discussions'},
+        {'name': 'Enhance Your Bookclub', 'description': 'Content to enrich book club experience'},
+        {'name': 'Closing Credits', 'description': 'Closing acknowledgements and credits'},
+        {'name': 'More From', 'description': 'More works from the author or publisher'},
+        {'name': 'Coming Soon', 'description': 'Preview of upcoming works'},
+        {'name': 'Extract From', 'description': 'Excerpt from another book or content'}
+    ]
 
     @staticmethod
     def sanitize_name(name: str) -> str:

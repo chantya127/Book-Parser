@@ -623,6 +623,14 @@ class ChapterManager:
         Returns:
             Properly formatted chapter folder name with correct spacing
         """
+        # Import here to avoid circular dependency
+        import streamlit as st
+        from core.text_formatter import TextFormatter
+        
+        # Get font case and format "Chapter" text
+        font_case = st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+        formatted_chapter_text = TextFormatter.format_text("Chapter", font_case)
+        
         # Extract base name by removing the part suffix or use as-is for standalone
         if "_Part_" in parent_folder:
             base_name = parent_folder.split("_Part_")[0]
@@ -645,14 +653,13 @@ class ChapterManager:
         else:
             chapter_nm = chapter_name.strip()
         
-        # Generate folder name with proper spacing: Chapter {number}_{name}
-        # Note: Single space after "Chapter", underscore before chapter name
+        # Generate folder name with formatted "Chapter" text: {formatted_Chapter} {number}_{name}
         if chapter_nm == "Null_Name" and chapter_num == "Null_Null Name":
             import random
             random_num = random.randint(10000, 99999)
-            return f"{base_name}_Chapter {chapter_num}_{random_num}"
+            return f"{base_name}_{formatted_chapter_text} {chapter_num}_{random_num}"
         
-        return f"{base_name}_Chapter {chapter_num}_{chapter_nm}"
+        return f"{base_name}_{formatted_chapter_text} {chapter_num}_{chapter_nm}"
 
     @staticmethod
     def is_project_root_folder(folder_path: str) -> bool:
@@ -1150,15 +1157,18 @@ class PDFExtractor:
             # Use sequential numbering if provided, otherwise use actual page number
             page_num_for_filename = sequential_page_num if sequential_page_num is not None else actual_page_num
             
-            # Apply font formatting to the page number text
+            # Apply font formatting to both "Page" text and page number
             import streamlit as st
             from core.text_formatter import TextFormatter
             font_case = st.session_state.get('selected_font_case', 'First Capital (Title Case)')
+            
+            # Format "Page" text
+            formatted_page_text = TextFormatter.format_text("Page", font_case)
+            # Format page number
             formatted_page_num = TextFormatter.format_text(str(page_num_for_filename), font_case)
             
-            # Generate file name with proper spacing - KEEP THE SPACE
-            # Don't sanitize the naming_base if it already has proper formatting
-            file_name = f"{naming_base}_Page {formatted_page_num}.pdf"
+            # Generate file name with formatted "Page" text and number
+            file_name = f"{naming_base}_{formatted_page_text} {formatted_page_num}.pdf"
             
             # Use the exact dest_path provided
             file_path = dest_path / file_name
@@ -1172,7 +1182,7 @@ class PDFExtractor:
         except Exception as e:
             st.error(f"Error extracting page {actual_page_num}: {str(e)}")
             return False, ""
-    
+
     @staticmethod
     def sanitize_filename(filename: str) -> str:
         """Sanitize filename for cross-platform compatibility"""
@@ -1366,6 +1376,10 @@ class SessionManager:
         """Set font case and mark as selected"""
         st.session_state['selected_font_case'] = font_case
         st.session_state['font_case_selected'] = True
+        # Also store in project config for persistence
+        project_config = st.session_state.get('project_config', {})
+        project_config['selected_font_case'] = font_case
+        st.session_state['project_config'] = project_config
 
     @staticmethod
     def get_default_destination() -> str:
@@ -1478,7 +1492,17 @@ class TextFormatter:
     def get_current_font_case():
         """Get current font case from session - using lazy import"""
         import streamlit as st
-        return st.session_state.get('selected_font_case', 'First Capital (Sentence case)')
+        # Check session state first, then project config, then default
+        if 'selected_font_case' in st.session_state:
+            return st.session_state.get('selected_font_case')
+        
+        project_config = st.session_state.get('project_config', {})
+        if 'selected_font_case' in project_config:
+            font_case = project_config.get('selected_font_case')
+            st.session_state['selected_font_case'] = font_case
+            return font_case
+        
+        return 'First Capital (Sentence case)'
 
 
 # ===== File: src/ui/__init__.py =====
@@ -3752,11 +3776,10 @@ def render_font_case_selector():
         st.markdown("---")
         st.info("💡 You can change the font formatting later from the sidebar settings.")
 
-
 def render_font_case_changer():
     """Render font case changer for sidebar with radio buttons"""
     from core.text_formatter import TextFormatter
-    from src.core.session_manager import SessionManager
+    from core.session_manager import SessionManager
     
     if st.session_state.get('font_case_selected'):
         st.markdown("---")
@@ -3770,10 +3793,6 @@ def render_font_case_changer():
         except ValueError:
             current_index = 2
         
-        # Initialize the previous selection in session state if not exists
-        if 'previous_font_selection' not in st.session_state:
-            st.session_state['previous_font_selection'] = current_font_case
-        
         # Simple radio button selection
         selected_font_case = st.radio(
             "Select font format:",
@@ -3783,8 +3802,11 @@ def render_font_case_changer():
             help="Choose how all text elements are formatted"
         )
         
-        # Only process change if it's actually different from previous selection
-        if selected_font_case != st.session_state['previous_font_selection']:
+        # Update session state whenever selection changes
+        if selected_font_case != current_font_case:
+            st.session_state['selected_font_case'] = selected_font_case
+            SessionManager.set_font_case(selected_font_case)
+            
             st.markdown("**Preview:**")
             sample_texts = ["CS101", "Data Structures", "Advanced Topics"]
             
@@ -3792,13 +3814,9 @@ def render_font_case_changer():
                 formatted = TextFormatter.format_text(sample, selected_font_case)
                 st.write(f"`{formatted}`")
             
-            # Update both current and previous selections
-            st.session_state['selected_font_case'] = selected_font_case
-            st.session_state['previous_font_selection'] = selected_font_case
             st.success(f"Font format updated to: {selected_font_case}")
             
-            # FIXED: Don't rerun if folder structure is already created
-            # Only rerun if we're still in setup phase
+            # Only rerun if folder structure is not created
             if not SessionManager.get('folder_structure_created'):
                 st.rerun()
 
@@ -5037,9 +5055,12 @@ def save_current_project():
     project_file = projects_dir / f"{project_name}.json"
     
     try:
+        # Get current font case
+        current_font_case = SessionManager.get_font_case()
+        
         # Collect all project data including destinations
         project_data = {
-            'project_config': SessionManager.get('project_config', {}),
+            'project_config': config,
             'pdf_uploaded': SessionManager.get('pdf_uploaded', False),
             'pdf_file_name': SessionManager.get('pdf_file').name if SessionManager.get('pdf_file') else None,
             'total_pages': SessionManager.get('total_pages', 0),
@@ -5052,12 +5073,10 @@ def save_current_project():
             'chapter_suffixes': SessionManager.get('chapter_suffixes', {}),
             'extraction_history': SessionManager.get('extraction_history', []),
             'custom_parts': SessionManager.get('custom_parts', {}),
-            'font_case_selected': SessionManager.get('font_case_selected', False),
-            'selected_font_case': SessionManager.get('selected_font_case', 'First Capital (Sentence case)'),
-            'default_destination_folder': SessionManager.get('default_destination_folder', ''),
-            'destination_folder_selected': SessionManager.get('destination_folder_selected', False),
-            'project_destination_folder': SessionManager.get('project_destination_folder', ''),  # NEW
-            'project_destination_selected': SessionManager.get('project_destination_selected', False),  # NEW
+            'font_case_selected': True,
+            'selected_font_case': current_font_case,  # Use current font case
+            'project_destination_folder': SessionManager.get('project_destination_folder', ''),
+            'project_destination_selected': SessionManager.get('project_destination_selected', False),
             'saved_timestamp': timestamp,
             'saved_datetime': datetime.now().isoformat()
         }
@@ -5075,7 +5094,7 @@ def save_current_project():
         
     except Exception as e:
         st.error(f"❌ Error saving project: {str(e)}")
-
+        
 def load_project(project_name):
     """Load project from file"""
     projects_dir = get_projects_dir()

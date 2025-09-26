@@ -106,49 +106,75 @@ def render_project_management_section():
         if st.button("💾 Save Project", type="secondary"):
             save_current_project()
     
-    # Load existing project dropdown
+    # Load existing project dropdown with delete options
     if existing_projects:
-        st.markdown("**Load Existing Project:**")
+        st.markdown("**Existing Projects:**")
         
-        # Create dropdown options with display names
-        project_options = [""] + [p['display_name'] for p in existing_projects]
-        project_filenames = [""] + [p['filename'] for p in existing_projects]
-        
-        selected_index = st.selectbox(
-            "Select Project",
-            range(len(project_options)),
-            format_func=lambda x: "Choose a project..." if x == 0 else project_options[x],
-            key="project_load_select"
-        )
-        
-        if selected_index > 0:
-            selected_filename = project_filenames[selected_index]
-            selected_display = project_options[selected_index]
+        # Show projects in a more compact format with delete buttons
+        for project in existing_projects[:10]:  # Show only recent 10 projects
+            col_name, col_load, col_delete = st.columns([3, 1, 1])
             
-            col_load, col_delete = st.columns(2)
+            with col_name:
+                # Truncate long display names for better layout
+                display_name = project['display_name']
+                if len(display_name) > 40:
+                    display_name = display_name[:37] + "..."
+                st.write(f"📋 {display_name}")
             
             with col_load:
-                if st.button("📂 Load", key="load_project_btn"):
-                    load_project(selected_filename)
-                    st.success(f"✅ Loaded project: {selected_display}")
+                if st.button("📂", key=f"load_{project['filename']}", 
+                           help=f"Load project: {project['display_name']}"):
+                    load_project(project['filename'])
+                    st.success(f"✅ Loaded: {project['display_name'][:30]}...")
                     st.rerun()
             
             with col_delete:
-                if st.button("🗑️ Delete", key="delete_project_btn"):
-                    delete_project(selected_filename)
-                    st.success(f"✅ Deleted project: {selected_display}")
-                    st.rerun()
+                if st.button("❌", key=f"delete_{project['filename']}", 
+                           help=f"Delete project: {project['display_name']}"):
+                    # Add confirmation dialog
+                    if st.session_state.get(f'confirm_delete_{project["filename"]}'):
+                        delete_project(project['filename'])
+                        st.success(f"✅ Deleted: {project['display_name'][:30]}...")
+                        # Clear confirmation state
+                        if f'confirm_delete_{project["filename"]}' in st.session_state:
+                            del st.session_state[f'confirm_delete_{project["filename"]}']
+                        st.rerun()
+                    else:
+                        # Set confirmation state
+                        st.session_state[f'confirm_delete_{project["filename"]}'] = True
+                        st.warning(f"Click ❌ again to confirm deletion of: {project['display_name'][:30]}...")
+                        st.rerun()
+        
+        # Show count if there are more projects
+        if len(existing_projects) > 10:
+            st.caption(f"Showing 10 of {len(existing_projects)} projects")
+        
+        # Option to clear all confirmation states
+        if any(key.startswith('confirm_delete_') for key in st.session_state.keys()):
+            if st.button("🔄 Cancel All Deletions", type="secondary"):
+                # Clear all confirmation states
+                keys_to_remove = [key for key in st.session_state.keys() if key.startswith('confirm_delete_')]
+                for key in keys_to_remove:
+                    del st.session_state[key]
+                st.rerun()
     
     # Show current project status
     current_project = SessionManager.get('current_project_name')
     if current_project:
-        # Format current project name for display
         display_current = format_project_display_name(current_project)
+        if len(display_current) > 50:
+            display_current = display_current[:47] + "..."
         st.info(f"📋 Current: **{display_current}**")
     else:
         st.info("📋 No project loaded")
     
     st.markdown("---")
+
+def clear_all_delete_confirmations():
+    """Clear all delete confirmation states"""
+    keys_to_remove = [key for key in st.session_state.keys() if key.startswith('confirm_delete_')]
+    for key in keys_to_remove:
+        del st.session_state[key]
 
 def create_new_project():
     """Create a new project by clearing current session"""
@@ -256,7 +282,7 @@ def save_current_project():
         
     except Exception as e:
         st.error(f"❌ Error saving project: {str(e)}")
-        
+
 def load_project(project_name):
     """Load project from file"""
     projects_dir = get_projects_dir()
@@ -391,6 +417,7 @@ def display_pdf_success():
         st.info(f"Total pages: {total_pages}")
 
 
+
 def render_project_details_section():
     """Render project details input section with font formatting"""
     if not SessionManager.get('pdf_uploaded') and not SessionManager.get('expected_pdf_name'):
@@ -399,7 +426,13 @@ def render_project_details_section():
     st.subheader("Step 2: Project Details")
     
     config = SessionManager.get('project_config', {})
-    font_case = SessionManager.get_font_case()
+    
+    # Get font case from session state first, then from config as fallback
+    font_case = st.session_state.get('selected_font_case') or config.get('selected_font_case', 'First Capital (Sentence case)')
+    
+    # Ensure font case is always in session state
+    if 'selected_font_case' not in st.session_state and font_case:
+        st.session_state['selected_font_case'] = font_case
     
     # Show current font formatting
     st.caption(f"Font formatting: {font_case}")
@@ -425,12 +458,22 @@ def render_project_details_section():
         formatted_code = TextFormatter.format_text(code, font_case)
         formatted_book_name = TextFormatter.format_text(book_name, font_case)
         
-        SessionManager.update_config({
+        # Store values without triggering rerun
+        config_updates = {
             'code': formatted_code, 
             'book_name': formatted_book_name,
             'original_code': code,
-            'original_book_name': book_name
-        })
+            'original_book_name': book_name,
+            'selected_font_case': font_case  # Always preserve font case
+        }
+        
+        # Only update if values have changed to prevent unnecessary reruns
+        current_config = SessionManager.get('project_config', {})
+        if (current_config.get('code') != formatted_code or 
+            current_config.get('book_name') != formatted_book_name or
+            current_config.get('selected_font_case') != font_case):
+            
+            SessionManager.update_config(config_updates)
         
         # Show preview with proper formatting
         safe_code = FolderManager.sanitize_name(formatted_code)

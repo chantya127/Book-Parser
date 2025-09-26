@@ -72,6 +72,7 @@ def render_font_case_selector():
         st.markdown("---")
         st.info("💡 You can change the font formatting later from the sidebar settings.")
 
+
 def render_font_case_changer():
     """Render font case changer for sidebar with radio buttons"""
     from core.text_formatter import TextFormatter
@@ -81,27 +82,43 @@ def render_font_case_changer():
         st.markdown("---")
         st.subheader("🎨 Text Format")
         
-        current_font_case = st.session_state.get('selected_font_case', 'First Capital (Title Case)')
+        # Get current font case from session state first
+        current_font_case = st.session_state.get('selected_font_case')
+        if not current_font_case:
+            # Fallback to project config or default
+            config = SessionManager.get('project_config', {})
+            current_font_case = config.get('selected_font_case', 'First Capital (Sentence case)')
+            # Set it in session state
+            st.session_state['selected_font_case'] = current_font_case
+        
         font_options = TextFormatter.get_font_case_options()
         
         try:
             current_index = font_options.index(current_font_case)
         except ValueError:
             current_index = 2
+            current_font_case = font_options[2]
+            st.session_state['selected_font_case'] = current_font_case
         
-        # Simple radio button selection
+        # Use session state key to maintain selection
         selected_font_case = st.radio(
             "Select font format:",
             font_options,
             index=current_index,
-            key="font_case_radio_selection",
+            key="font_case_radio_persistent",  # Different key for persistence
             help="Choose how all text elements are formatted"
         )
         
-        # Update session state whenever selection changes
+        # Update session state and config when there's a real change
         if selected_font_case != current_font_case:
+            # Update both session state and project config immediately
             st.session_state['selected_font_case'] = selected_font_case
             SessionManager.set_font_case(selected_font_case)
+            
+            # Update project config to persist across sessions
+            current_config = SessionManager.get('project_config', {})
+            current_config['selected_font_case'] = selected_font_case
+            SessionManager.set('project_config', current_config)
             
             st.markdown("**Preview:**")
             sample_texts = ["CS101", "Data Structures", "Advanced Topics"]
@@ -111,7 +128,3 @@ def render_font_case_changer():
                 st.write(f"`{formatted}`")
             
             st.success(f"Font format updated to: {selected_font_case}")
-            
-            # Only rerun if folder structure is not created
-            if not SessionManager.get('folder_structure_created'):
-                st.rerun()
