@@ -34,6 +34,7 @@ class SessionManager:
             'project_destination_selected': False,  # NEW: Track if project destination is set
             'total_pages_generated': 0,  # NEW: Cache for generated pages count
             'pages_calculated_timestamp': None,  # NEW: Last calculation timestamp
+            'authenticated': False,  # Authentication state (only used when auth is enabled)
         }
         
         for key, value in defaults.items():

@@ -58,11 +58,28 @@ def setup_page_config():
 
 def render_main_app():
     """Render the main application layout"""
+    from core.auth_manager import AuthManager
+    from ui.login import render_login_form, render_logout_button
+
+    # Check if authentication is required
+    if AuthManager.REQUIRE_AUTH:
+        # Check authentication first
+        if not AuthManager.is_authenticated():
+            render_login_form()
+            return
+
+        # Add logout button to sidebar
+        render_logout_button()
+
     st.title("📚 PDF Page Organizer")
+
+    # Show authentication status in main app
+    if not AuthManager.REQUIRE_AUTH:
+        st.info("🔓 Authentication is disabled - no password required")
 
     # Check if folder browser should be shown
     from ui.folder_selector import render_folder_browser_in_main
-    
+
     if render_folder_browser_in_main():
         return  # Show only folder browser when active
     
