@@ -35,7 +35,27 @@ class ChapterUtils:
         "Seventy-Four", "Seventy-Five", "Seventy-Six", "Seventy-Seven", "Seventy-Eight", "Seventy-Nine", "Eighty",
         "Eighty-One", "Eighty-Two", "Eighty-Three", "Eighty-Four", "Eighty-Five", "Eighty-Six",
         "Eighty-Seven", "Eighty-Eight", "Eighty-Nine", "Ninety", "Ninety-One", "Ninety-Two", "Ninety-Three",
-        "Ninety-Four", "Ninety-Five", "Ninety-Six", "Ninety-Seven", "Ninety-Eight", "Ninety-Nine", "One Hundred"
+        "Ninety-Four", "Ninety-Five", "Ninety-Six", "Ninety-Seven", "Ninety-Eight", "Ninety-Nine", "One Hundred",
+        "One Hundred One", "One Hundred Two", "One Hundred Three", "One Hundred Four", "One Hundred Five", "One Hundred Six",
+        "One Hundred Seven", "One Hundred Eight", "One Hundred Nine", "One Hundred Ten",
+        "One Hundred Eleven", "One Hundred Twelve", "One Hundred Thirteen", "One Hundred Fourteen", "One Hundred Fifteen", "One Hundred Sixteen",
+        "One Hundred Seventeen", "One Hundred Eighteen", "One Hundred Nineteen", "One Hundred Twenty",
+        "One Hundred Twenty One", "One Hundred Twenty Two", "One Hundred Twenty Three", "One Hundred Twenty Four", "One Hundred Twenty Five", "One Hundred Twenty Six",
+        "One Hundred Twenty Seven", "One Hundred Twenty Eight", "One Hundred Twenty Nine", "One Hundred Thirty",
+        "One Hundred Thirty One", "One Hundred Thirty Two", "One Hundred Thirty Three", "One Hundred Thirty Four", "One Hundred Thirty Five", "One Hundred Thirty Six",
+        "One Hundred Thirty Seven", "One Hundred Thirty Eight", "One Hundred Thirty Nine", "One Hundred Forty",
+        "One Hundred Forty One", "One Hundred Forty Two", "One Hundred Forty Three", "One Hundred Forty Four", "One Hundred Forty Five", "One Hundred Forty Six",
+        "One Hundred Forty Seven", "One Hundred Forty Eight", "One Hundred Forty Nine", "One Hundred Fifty",
+        "One Hundred Fifty One", "One Hundred Fifty Two", "One Hundred Fifty Three", "One Hundred Fifty Four", "One Hundred Fifty Five", "One Hundred Fifty Six",
+        "One Hundred Fifty Seven", "One Hundred Fifty Eight", "One Hundred Fifty Nine", "One Hundred Sixty",
+        "One Hundred Sixty One", "One Hundred Sixty Two", "One Hundred Sixty Three", "One Hundred Sixty Four", "One Hundred Sixty Five", "One Hundred Sixty Six",
+        "One Hundred Sixty Seven", "One Hundred Sixty Eight", "One Hundred Sixty Nine", "One Hundred Seventy",
+        "One Hundred Seventy One", "One Hundred Seventy Two", "One Hundred Seventy Three", "One Hundred Seventy Four", "One Hundred Seventy Five", "One Hundred Seventy Six",
+        "One Hundred Seventy Seven", "One Hundred Seventy Eight", "One Hundred Seventy Nine", "One Hundred Eighty",
+        "One Hundred Eighty One", "One Hundred Eighty Two", "One Hundred Eighty Three", "One Hundred Eighty Four", "One Hundred Eighty Five", "One Hundred Eighty Six",
+        "One Hundred Eighty Seven", "One Hundred Eighty Eight", "One Hundred Eighty Nine", "One Hundred Ninety",
+        "One Hundred Ninety One", "One Hundred Ninety Two", "One Hundred Ninety Three", "One Hundred Ninety Four", "One Hundred Ninety Five", "One Hundred Ninety Six",
+        "One Hundred Ninety Seven", "One Hundred Ninety Eight", "One Hundred Ninety Nine", "Two Hundred",
     ]
     
     ROMAN_NUMERALS = [
@@ -48,7 +68,17 @@ class ChapterUtils:
         "LXI", "LXII", "LXIII", "LXIV", "LXV", "LXVI", "LXVII", "LXVIII", "LXIX", "LXX",
         "LXXI", "LXXII", "LXXIII", "LXXIV", "LXXV", "LXXVI", "LXXVII", "LXXVIII", "LXXIX", "LXXX",
         "LXXXI", "LXXXII", "LXXXIII", "LXXXIV", "LXXXV", "LXXXVI", "LXXXVII", "LXXXVIII", "LXXXIX", "XC",
-        "XCI", "XCII", "XCIII", "XCIV", "XCV", "XCVI", "XCVII", "XCVIII", "XCIX", "C"
+        "XCI", "XCII", "XCIII", "XCIV", "XCV", "XCVI", "XCVII", "XCVIII", "XCIX", "C",
+        "CI", "CII", "CIII", "CIV", "CV", "CVI", "CVII", "CVIII", "CIX", "CX",
+        "CXI", "CXII", "CXIII", "CXIV", "CXV", "CXVI", "CXVII", "CXVIII", "CXIX", "CXX",
+        "CXXI", "CXXII", "CXXIII", "CXXIV", "CXXV", "CXXVI", "CXXVII", "CXXVIII", "CXXIX", "CXXX",
+        "CXXXI", "CXXXII", "CXXXIII", "CXXXIV", "CXXXV", "CXXXVI", "CXXXVII", "CXXXVIII", "CXXXIX", "CXL",
+        "CXLI", "CXLII", "CXLIII", "CXLIV", "CXLV", "CXLVI", "CXLVII", "CXLVIII", "CXLIX", "CL",
+        "CLI", "CLII", "CLIII", "CLIV", "CLV", "CLVI", "CLVII", "CLVIII", "CLIX", "CLX",
+        "CLXI", "CLXII", "CLXIII", "CLXIV", "CLXV", "CLXVI", "CLXVII", "CLXVIII", "CLXIX", "CLXX",
+        "CLXXI", "CLXXII", "CLXXIII", "CLXXIV", "CLXXV", "CLXXVI", "CLXXVII", "CLXXVIII", "CLXXIX", "CLXXX",
+        "CLXXXI", "CLXXXII", "CLXXXIII", "CLXXXIV", "CLXXXV", "CLXXXVI", "CLXXXVII", "CLXXXVIII", "CLXXXIX", "CXC",
+        "CXCI", "CXCII", "CXCIII", "CXCIV", "CXCV", "CXCVI", "CXCVII", "CXCVIII", "CXCIX", "CC",
     ]
     
     @staticmethod

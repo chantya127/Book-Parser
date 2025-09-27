@@ -193,21 +193,28 @@ class ChapterManager:
         
         # Handle missing values with improved formatting
         if chapter_number is None or chapter_number.strip() == "":
-            chapter_num = "Null_Null Name"
+            # Apply font formatting to "Null" and create properly formatted null name
+            formatted_null = TextFormatter.format_text("Null", font_case)
+            chapter_num = f"{formatted_null} Null Name"
         else:
             chapter_num = chapter_number.strip()
-        
+
         if chapter_name is None or chapter_name.strip() == "":
-            chapter_nm = "Null_Name"
+            # Apply font formatting to "Null Name" based on selected font case (space instead of underscore)
+            chapter_nm = TextFormatter.format_text("Null Name", font_case)
         else:
             chapter_nm = chapter_name.strip()
         
         # Generate folder name with formatted "Chapter" text: {formatted_Chapter} {number}_{name}
-        if chapter_nm == "Null_Name" and chapter_num == "Null_Null Name":
+        # Check if both are null values (now formatted according to font case)
+        null_name_formatted = TextFormatter.format_text("Null Name", font_case)
+        null_null_name_formatted = f"{TextFormatter.format_text('Null', font_case)} Null Name"
+
+        if chapter_nm == null_name_formatted and chapter_num == null_null_name_formatted:
             import random
             random_num = random.randint(10000, 99999)
             return f"{base_name}_{formatted_chapter_text} {chapter_num}_{random_num}"
-        
+
         return f"{base_name}_{formatted_chapter_text} {chapter_num}_{chapter_nm}"
 
     @staticmethod

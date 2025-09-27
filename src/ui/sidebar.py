@@ -255,8 +255,11 @@ def save_current_project():
             'folder_structure_created': SessionManager.get('folder_structure_created', False),
             'created_folders': SessionManager.get('created_folders', []),
             'chapters_config': SessionManager.get('chapters_config', {}),
+            'standalone_chapters': SessionManager.get('standalone_chapters', []),  # ADD THIS LINE
             'chapters_created': SessionManager.get('chapters_created', False),
+            'page_assignments': SessionManager.get('page_assignments', {}),  # ADD THIS LINE
             'folder_metadata': SessionManager.get('folder_metadata', {}),
+            'unique_chapter_counter': SessionManager.get('unique_chapter_counter', 0),  # ADD THIS LINE
             'numbering_systems': SessionManager.get('numbering_systems', {}),
             'chapter_suffixes': SessionManager.get('chapter_suffixes', {}),
             'extraction_history': SessionManager.get('extraction_history', []),
@@ -265,6 +268,8 @@ def save_current_project():
             'selected_font_case': current_font_case,  # Use current font case
             'project_destination_folder': SessionManager.get('project_destination_folder', ''),
             'project_destination_selected': SessionManager.get('project_destination_selected', False),
+            'total_pages_generated': SessionManager.get('total_pages_generated', 0),  # ADD THIS LINE
+            'pages_calculated_timestamp': SessionManager.get('pages_calculated_timestamp', None),  # ADD THIS LINE
             'saved_timestamp': timestamp,
             'saved_datetime': datetime.now().isoformat()
         }
