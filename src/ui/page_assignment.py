@@ -443,12 +443,11 @@ def render_page_range_input(destination_info: Tuple[str, str]):
     # Page range input with examples and unique key
     st.markdown("**Enter page ranges:**")
     ranges_input_key = f"page_ranges_{hash(destination_path) % 10000}"
-    page_ranges_text = st.text_area(
+    page_ranges_text = st.text_input(
         "Page Ranges",
         value=initial_ranges,
-        placeholder=f"Examples:\n• Single pages: 1, 5, 10\n• Ranges: 1-5, 10-15\n• Mixed: 1-3, 7, 12-20\n\nTotal pages available: {total_pages}",
-        help=f"Specify pages to extract (1-{total_pages})",
-        height=120,
+        placeholder="Examples: 1, 5, 10 or 1-5, 10-15 or 1-3, 7, 12-20",
+        help=f"Specify pages to extract (1-{total_pages}). Buttons are enabled as soon as you start typing.",
         key=ranges_input_key
     )
     

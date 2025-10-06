@@ -113,7 +113,7 @@ def render_default_folder_selection(config: dict):
             default_selected = folder_name in ['prologue', 'index', 'epilogue']
             
             if st.checkbox(
-                f"**{folder_name.title()}**",
+                f"**{folder_name}**",
                 value=default_selected,
                 key=f"default_folder_{folder_name}",
                 help=folder_desc
@@ -197,7 +197,7 @@ def display_creation_success_with_selection(created_folders: List[str], custom_p
     if selected_folders:
         st.markdown("**Created default folders:**")
         for folder in selected_folders:
-            st.write(f"📁 {folder.title()}")
+            st.write(f"📁 {folder}")
     
     if custom_parts:
         st.markdown("**Created custom parts:**")
