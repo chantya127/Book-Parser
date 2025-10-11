@@ -5,7 +5,7 @@ from core.auth_manager import AuthManager
 
 def render_login_form():
     """Render the login form"""
-    st.title("🔐 Login to PDF Page Organizer")
+    st.title("🔐 Login to PBS Organizer")
 
     st.markdown("---")
     st.markdown("*Default password: admin123*")

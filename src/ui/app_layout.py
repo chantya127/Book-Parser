@@ -12,7 +12,7 @@ from core.session_manager import SessionManager
 def setup_page_config():
     """Configure Streamlit page settings"""
     st.set_page_config(
-        page_title="PDF Page Organizer",
+        page_title="PBS Organizer",
         page_icon="📚",
         layout="wide",
         initial_sidebar_state="expanded"
@@ -71,7 +71,7 @@ def render_main_app():
         # Add logout button to sidebar
         render_logout_button()
 
-    st.title("📚 PDF Page Organizer")
+    st.title("📚 PBS Organizer")
 
     # Show authentication status in main app
     if not AuthManager.REQUIRE_AUTH:
